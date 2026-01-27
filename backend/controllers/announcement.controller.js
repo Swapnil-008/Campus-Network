@@ -1,0 +1,167 @@
+import Announcement from '../models/announcement.model.js';
+import User from '../models/user.model.js';
+
+// @desc    Create a new announcement
+export const createAnnouncement = async (req, res) => {
+  try {
+    const { title, description, visibility, priority, attachments, deadline } = req.body;
+    
+    // Only teachers, TnP admins, and college admins can create announcements
+    if (!['teacher', 'tnp_admin', 'college_admin'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Not authorized to create announcements' });
+    }
+
+    const announcement = new Announcement({
+      title,
+      description,
+      visibility,
+      priority: priority || 'normal',
+      attachments: attachments || [],
+      deadline: deadline || null,
+      createdBy: req.user.id
+    });
+
+    await announcement.save();
+
+    // Populate creator info
+    await announcement.populate('createdBy', 'name email role department');
+
+    res.status(201).json(announcement);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Get all announcements for current user
+export const getAnnouncements = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    let query = {};
+
+    // Filter based on user's department
+    if (user.role === 'student' || user.role === 'teacher') {
+      query = {
+        $or: [
+          { 'visibility.type': 'global' },
+          { 
+            'visibility.type': 'department',
+            'visibility.departments': user.department
+          }
+        ]
+      };
+    } else {
+      // TnP admins and college admins see all announcements
+      query = {};
+    }
+
+    const announcements = await Announcement.find(query)
+      .populate('createdBy', 'name email role department')
+      .sort({ priority: 1, createdAt: -1 }); // Sort by priority first, then date
+
+    res.json(announcements);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Get single announcement
+export const getAnnouncementById = async (req, res) => {
+  try {
+    const announcement = await Announcement.findById(req.params.id)
+      .populate('createdBy', 'name email role department');
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    res.json(announcement);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Mark announcement as read
+export const markAsRead = async (req, res) => {
+  try {
+    const announcement = await Announcement.findById(req.params.id);
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    // Add user to readBy array if not already present
+    if (!announcement.readBy.includes(req.user.id)) {
+      announcement.readBy.push(req.user.id);
+      await announcement.save();
+    }
+
+    res.json({ message: 'Marked as read' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Update announcement
+export const updateAnnouncement = async (req, res) => {
+  try {
+    let announcement = await Announcement.findById(req.params.id);
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    // Check if user is the creator or admin
+    if (announcement.createdBy.toString() !== req.user.id && req.user.role !== 'college_admin') {
+      return res.status(403).json({ message: 'Not authorized to update this announcement' });
+    }
+
+    const { title, description, visibility, priority, attachments, deadline } = req.body;
+
+    announcement.title = title || announcement.title;
+    announcement.description = description || announcement.description;
+    announcement.visibility = visibility || announcement.visibility;
+    announcement.priority = priority || announcement.priority;
+    announcement.attachments = attachments || announcement.attachments;
+    announcement.deadline = deadline || announcement.deadline;
+
+    await announcement.save();
+    await announcement.populate('createdBy', 'name email role department');
+
+    res.json(announcement);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Delete announcement
+export const deleteAnnouncement = async (req, res) => {
+  try {
+    const announcement = await Announcement.findById(req.params.id);
+
+    if (!announcement) {
+      return res.status(404).json({ message: 'Announcement not found' });
+    }
+
+    // Check if user is the creator or admin
+    if (announcement.createdBy.toString() !== req.user.id && req.user.role !== 'college_admin') {
+      return res.status(403).json({ message: 'Not authorized to delete this announcement' });
+    }
+
+    await announcement.deleteOne();
+
+    res.json({ message: 'Announcement deleted' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
