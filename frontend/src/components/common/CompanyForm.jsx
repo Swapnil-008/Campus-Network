@@ -68,6 +68,11 @@ const CompanyForm = ({ onSubmit, onCancel }) => {
       return;
     }
 
+    if (!formLink) {
+      setError('Application form link is required');
+      return;
+    }
+
     setLoading(true);
 
     const companyData = {
@@ -84,7 +89,7 @@ const CompanyForm = ({ onSubmit, onCancel }) => {
         years
       },
       deadline,
-      formLink: formLink || null
+      formLink
     };
 
     try {
@@ -206,7 +211,7 @@ const CompanyForm = ({ onSubmit, onCancel }) => {
             Eligible Branches *
           </label>
           <div className="space-y-2">
-            {['CS', 'IT', 'EnTC'].map((branch) => (
+            {['CS', 'IT', 'ENTC'].map((branch) => (
               <label key={branch} className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -275,16 +280,20 @@ const CompanyForm = ({ onSubmit, onCancel }) => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Application Form Link (Optional)
+            Application Form Link (Google Form) *
           </label>
           <input
             type="url"
             name="formLink"
             value={formLink}
             onChange={onChange}
+            required
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="https://forms.google.com/..."
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Students will be redirected to this form when they click "Apply Now"
+          </p>
         </div>
 
         <div className="flex gap-3 pt-4">
