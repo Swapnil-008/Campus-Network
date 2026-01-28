@@ -22,7 +22,7 @@ const companySchema = new mongoose.Schema({
   eligibility: {
     branches: [{
       type: String,
-      enum: ['CS', 'IT', 'EnTC'],
+      enum: ['CS', 'IT', 'ENTC'],
       required: true
     }],
     minCGPA: {
@@ -43,7 +43,7 @@ const companySchema = new mongoose.Schema({
   },
   formLink: {
     type: String,
-    default: null
+    required: true
   },
   isActive: {
     type: Boolean,

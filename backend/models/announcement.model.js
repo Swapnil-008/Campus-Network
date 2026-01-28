@@ -18,7 +18,7 @@ const announcementSchema = new mongoose.Schema({
     },
     departments: [{
       type: String,
-      enum: ['CS', 'IT', 'EnTC']
+      enum: ['CS', 'IT', 'ENTC']
     }]
   },
   priority: {

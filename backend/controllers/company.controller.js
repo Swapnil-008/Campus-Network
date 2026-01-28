@@ -11,6 +11,11 @@ export const createCompany = async (req, res) => {
 
     const { companyName, role, description, packageOffered, eligibility, deadline, formLink } = req.body;
 
+    // Validate that formLink is provided and is required
+    if (!formLink) {
+      return res.status(400).json({ message: 'Application form link is required' });
+    }
+
     const company = new Company({
       companyName,
       role,
@@ -91,7 +96,8 @@ export const getCompanyById = async (req, res) => {
   }
 };
 
-// @desc    Apply to a company
+// @desc    Mark student as applied (called when student confirms they submitted the form)
+// THIS IS THE KEY CHANGE - Student just marks they've applied, doesn't need backend validation
 export const applyToCompany = async (req, res) => {
   try {
     // Only students can apply
