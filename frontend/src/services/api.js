@@ -41,4 +41,11 @@ export const deleteCompany = (id) => API.delete(`/companies/${id}`);
 export const exportApplicants = (id) => API.get(`/companies/${id}/export`);
 export const closeExpiredCompanies = () => API.post('/companies/close-expired');
 
+// Admin APIs
+export const getAllUsers = (status) => API.get(`/admin/users${status ? `?status=${status}` : ''}`);
+export const approveUser = (id) => API.put(`/admin/users/${id}/approve`);
+export const deleteUser = (id) => API.delete(`/admin/users/${id}`);
+export const updateUserRole = (id, data) => API.put(`/admin/users/${id}/role`, data);
+export const getStatistics = () => API.get('/admin/statistics');
+
 export default API;

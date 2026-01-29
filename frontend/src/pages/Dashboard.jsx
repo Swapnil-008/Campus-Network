@@ -7,6 +7,7 @@ import AnnouncementForm from '../components/common/AnnouncementForm';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
 import TnP from './TnP';
+import AdminPanel from './AdminPanel';
 
 const Dashboard = () => {
   const { user, logout } = useContext(AuthContext);
@@ -106,6 +107,18 @@ const Dashboard = () => {
             >
               💼 Training & Placement
             </button>
+            {user?.role === 'college_admin' && (
+            <button
+                onClick={() => setActiveTab('admin')}
+                className={`py-4 px-2 font-medium border-b-2 transition ${
+                    activeTab === 'admin'
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+            >
+                ⚙️ Admin Panel
+            </button>
+            )}
           </div>
         </div>
       </div>
@@ -173,9 +186,11 @@ const Dashboard = () => {
               )}
             </div>
           </>
-        ) : (
+        ) : activeTab === 'tnp' ? (
           <TnP />
-        )}
+        ) : activeTab === 'admin' ? (
+            <AdminPanel />
+        ) : null}
       </div>
     </div>
   );
