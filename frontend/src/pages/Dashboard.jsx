@@ -4,13 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import { getAnnouncements, createAnnouncement } from '../services/api';
 import AnnouncementCard from '../components/common/AnnouncementCard';
 import AnnouncementForm from '../components/common/AnnouncementForm';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import EmptyState from '../components/common/EmptyState';
 import TnP from './TnP';
 
 const Dashboard = () => {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('announcements'); // 'announcements' or 'tnp'
+  const [activeTab, setActiveTab] = useState('announcements');
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -24,6 +26,7 @@ const Dashboard = () => {
   }, [activeTab]);
 
   const fetchAnnouncements = async () => {
+    setLoading(true);
     try {
       const res = await getAnnouncements();
       setAnnouncements(res.data);
@@ -53,21 +56,28 @@ const Dashboard = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Navbar */}
       <nav className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-600">College Platform</h1>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-              <p className="text-xs text-gray-500">
-                {user?.role} {user?.department && `• ${user.department}`}
-              </p>
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-blue-600">College Platform</h1>
+              <p className="text-xs text-gray-500">Your campus, connected</p>
             </div>
-            <button
-              onClick={handleLogout}
-              className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition text-sm"
-            >
-              Logout
-            </button>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900">{user?.name}</p>
+                <p className="text-xs text-gray-500">
+                  {user?.role?.replace('_', ' ').toUpperCase()} 
+                  {user?.department && ` • ${user.department}`}
+                  {user?.year && ` • Year ${user.year}`}
+                </p>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition text-sm font-medium"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -110,7 +120,7 @@ const Dashboard = () => {
                 {!showCreateForm ? (
                   <button
                     onClick={() => setShowCreateForm(true)}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition font-medium"
+                    className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition font-medium shadow-sm"
                   >
                     + Create Announcement
                   </button>
@@ -125,16 +135,32 @@ const Dashboard = () => {
 
             {/* Announcements List */}
             <div>
-              <h2 className="text-2xl font-bold mb-4">Announcements</h2>
+              <h2 className="text-2xl font-bold mb-4 text-gray-900">
+                {user?.role === 'student' ? 'Your Announcements' : 'All Announcements'}
+              </h2>
 
               {loading ? (
-                <div className="text-center py-12">
-                  <div className="text-xl text-gray-600">Loading announcements...</div>
-                </div>
+                <LoadingSpinner message="Loading announcements..." />
               ) : announcements.length === 0 ? (
-                <div className="bg-white rounded-lg shadow-md p-12 text-center">
-                  <p className="text-gray-500 text-lg">No announcements yet</p>
-                </div>
+                <EmptyState
+                  icon="📢"
+                  title="No Announcements Yet"
+                  description={
+                    canCreateAnnouncement
+                      ? "Get started by creating your first announcement"
+                      : "No announcements have been posted yet. Check back later!"
+                  }
+                  action={
+                    canCreateAnnouncement && !showCreateForm ? (
+                      <button
+                        onClick={() => setShowCreateForm(true)}
+                        className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition"
+                      >
+                        Create First Announcement
+                      </button>
+                    ) : null
+                  }
+                />
               ) : (
                 <div className="space-y-4">
                   {announcements.map((announcement) => (

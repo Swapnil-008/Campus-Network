@@ -73,6 +73,18 @@ const CompanyForm = ({ onSubmit, onCancel }) => {
       return;
     }
 
+    // Validate deadline is in future
+    if (new Date(deadline) <= new Date()) {
+        setError('Deadline must be in the future');
+        return;
+    }
+
+    // Validate package range
+    if (packageMin && packageMax && parseFloat(packageMin) > parseFloat(packageMax)) {
+        setError('Minimum package cannot be greater than maximum package');
+        return;
+    }
+
     setLoading(true);
 
     const companyData = {
