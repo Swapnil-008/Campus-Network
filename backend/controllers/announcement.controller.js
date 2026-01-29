@@ -42,6 +42,9 @@ export const getAnnouncements = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Get query parameters for search and filter
+    const { search, priority, department } = req.query;
+
     let query = {};
 
     // Filter based on user's department
@@ -58,6 +61,27 @@ export const getAnnouncements = async (req, res) => {
     } else {
       // TnP admins and college admins see all announcements
       query = {};
+    }
+
+    // add search filter
+    if (search) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } }
+        ]
+      });
+    }
+
+    // Add priority filter
+    if (priority && priority !== 'all') {
+      query.priority = priority;
+    }
+
+    // Add department filter (for admins)
+    if (department && department !== 'all') {
+      query['visibility.departments'] = department;
     }
 
     const announcements = await Announcement.find(query)

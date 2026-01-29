@@ -46,6 +46,9 @@ export const getCompanies = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Get query parameters for search and filter
+    const { search, status } = req.query;
+
     let query = {};
 
     // Students see only eligible companies
@@ -65,6 +68,31 @@ export const getCompanies = async (req, res) => {
       };
     }
     // TnP admins and college admins see all companies (no filter)
+
+    // Add search filter
+    if (search) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { companyName: { $regex: search, $options: 'i' } },
+          { role: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } }
+        ]
+      });
+    }
+
+    // Add status filter (for admins)
+    if (status) {
+      if (status === 'active') {
+        query.isActive = true;
+        query.deadline = { $gte: new Date() };
+      } else if (status === 'expired') {
+        query.$or = [
+          { isActive: false },
+          { deadline: { $lt: new Date() } }
+        ];
+      }
+    }
 
     const companies = await Company.find(query)
       .populate('createdBy', 'name email role')

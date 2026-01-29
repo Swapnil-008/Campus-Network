@@ -6,6 +6,8 @@ import AnnouncementCard from '../components/common/AnnouncementCard';
 import AnnouncementForm from '../components/common/AnnouncementForm';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
+import SearchBar from '../components/common/SearchBar'; 
+import FilterBar from '../components/common/FilterBar';
 import TnP from './TnP';
 import AdminPanel from './AdminPanel';
 
@@ -17,19 +19,33 @@ const Dashboard = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   const canCreateAnnouncement = ['teacher', 'tnp_admin', 'college_admin'].includes(user?.role);
+
+  // Priority filters
+  const priorityFilters = [
+    { value: 'all', label: 'All' },
+    { value: 'urgent', label: '🚨 Urgent' },
+    { value: 'important', label: '⚠️ Important' },
+    { value: 'normal', label: '📢 Normal' }
+  ];
 
   useEffect(() => {
     if (activeTab === 'announcements') {
       fetchAnnouncements();
     }
-  }, [activeTab]);
+  }, [activeTab, searchTerm, priorityFilter]);
 
   const fetchAnnouncements = async () => {
     setLoading(true);
     try {
-      const res = await getAnnouncements();
+      const params = {};
+      if (searchTerm) params.search = searchTerm;
+      if (priorityFilter !== 'all') params.priority = priorityFilter;
+      
+      const res = await getAnnouncements(params);
       setAnnouncements(res.data);
     } catch (err) {
       console.error('Error fetching announcements:', err);
@@ -46,6 +62,14 @@ const Dashboard = () => {
     } catch (err) {
       throw err;
     }
+  };
+
+  const handleSearch = (term) => {
+    setSearchTerm(term);
+  };
+
+  const handleFilterChange = (filter) => {
+    setPriorityFilter(filter);
   };
 
   const handleLogout = () => {
@@ -146,6 +170,19 @@ const Dashboard = () => {
               </div>
             )}
 
+            {/* ADD SEARCH & FILTER SECTION */}
+            <div className="mb-6 space-y-4">
+              <SearchBar
+                onSearch={handleSearch}
+                placeholder="Search announcements by title or description..."
+              />
+              <FilterBar
+                filters={priorityFilters}
+                activeFilter={priorityFilter}
+                onFilterChange={handleFilterChange}
+              />
+            </div>
+            
             {/* Announcements List */}
             <div>
               <h2 className="text-2xl font-bold mb-4 text-gray-900">

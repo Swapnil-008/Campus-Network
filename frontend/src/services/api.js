@@ -25,7 +25,7 @@ export const getCurrentUser = () => API.get('/auth/me');
 
 // Announcement APIs
 export const createAnnouncement = (announcementData) => API.post('/announcements', announcementData);
-export const getAnnouncements = () => API.get('/announcements');
+export const getAnnouncements = (params) => API.get('/announcements', { params });
 export const getAnnouncementById = (id) => API.get(`/announcements/${id}`);
 export const markAnnouncementAsRead = (id) => API.put(`/announcements/${id}/read`);
 export const updateAnnouncement = (id, announcementData) => API.put(`/announcements/${id}`, announcementData);
@@ -33,7 +33,7 @@ export const deleteAnnouncement = (id) => API.delete(`/announcements/${id}`);
 
 // Company APIs
 export const createCompany = (companyData) => API.post('/companies', companyData);
-export const getCompanies = () => API.get('/companies');
+export const getCompanies = (params) => API.get('/companies', { params });
 export const getCompanyById = (id) => API.get(`/companies/${id}`);
 export const applyToCompany = (id) => API.post(`/companies/${id}/apply`);
 export const updateCompany = (id, companyData) => API.put(`/companies/${id}`, companyData);

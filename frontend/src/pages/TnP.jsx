@@ -5,6 +5,8 @@ import CompanyCard from '../components/common/CompanyCard';
 import CompanyForm from '../components/common/CompanyForm';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
+import SearchBar from '../components/common/SearchBar';  // ADD
+import FilterBar from '../components/common/FilterBar';  // ADD
 import toast from 'react-hot-toast';
 
 const TnP = () => {
@@ -12,17 +14,32 @@ const TnP = () => {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  
+  // ADD THESE STATES
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const isTnPAdmin = user?.role === 'tnp_admin' || user?.role === 'college_admin';
 
+  // Status filters (only for admins)
+  const statusFilters = [
+    { value: 'all', label: 'All' },
+    { value: 'active', label: '✅ Active' },
+    { value: 'expired', label: '⏰ Expired' }
+  ];
+
   useEffect(() => {
     fetchCompanies();
-  }, []);
+  }, [searchTerm, statusFilter]); // ADD DEPENDENCIES
 
   const fetchCompanies = async () => {
     setLoading(true);
     try {
-      const res = await getCompanies();
+      const params = {};
+      if (searchTerm) params.search = searchTerm;
+      if (statusFilter !== 'all' && isTnPAdmin) params.status = statusFilter;
+      
+      const res = await getCompanies(params);
       setCompanies(res.data);
     } catch (err) {
       console.error('Error fetching companies:', err);
@@ -45,7 +62,7 @@ const TnP = () => {
     try {
       await applyToCompany(companyId);
       fetchCompanies();
-      toast.success('✅ Application submitted successfully!');
+      toast.success('Application submitted successfully!');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to apply');
       throw err;
@@ -89,10 +106,18 @@ const TnP = () => {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      toast.success(`✅ Exported ${applicants.length} applicants successfully!`);
+      toast.success(`Exported ${applicants.length} applicants successfully!`);
     } catch (err) {
       toast.error('Failed to export applicants');
     }
+  };
+
+  const handleSearch = (term) => {
+    setSearchTerm(term);
+  };
+
+  const handleFilterChange = (filter) => {
+    setStatusFilter(filter);
   };
 
   const hasApplied = (companyId) => {
@@ -137,10 +162,30 @@ const TnP = () => {
         </div>
       )}
 
+      {/* ADD SEARCH & FILTER SECTION */}
+      <div className="mb-6 space-y-4">
+        <SearchBar
+          onSearch={handleSearch}
+          placeholder="Search companies by name, role, or description..."
+        />
+        {isTnPAdmin && (
+          <FilterBar
+            filters={statusFilters}
+            activeFilter={statusFilter}
+            onFilterChange={handleFilterChange}
+          />
+        )}
+      </div>
+
       {/* Companies List */}
       <div>
         <h2 className="text-2xl font-bold mb-4 text-gray-900">
           {user?.role === 'student' ? 'Companies for You' : 'All Companies'}
+          {searchTerm && (
+            <span className="text-sm font-normal text-gray-500 ml-2">
+              (searching for "{searchTerm}")
+            </span>
+          )}
         </h2>
 
         {loading ? (
@@ -148,16 +193,18 @@ const TnP = () => {
         ) : companies.length === 0 ? (
           <EmptyState
             icon="💼"
-            title="No Companies Available"
+            title={searchTerm ? "No Results Found" : "No Companies Available"}
             description={
-              user?.role === 'student'
+              searchTerm
+                ? `No companies match "${searchTerm}"`
+                : user?.role === 'student'
                 ? "No companies match your profile yet. Check back later!"
                 : isTnPAdmin
                 ? "Get started by posting your first company opportunity"
                 : "No placement opportunities have been posted yet"
             }
             action={
-              isTnPAdmin && !showCreateForm ? (
+              isTnPAdmin && !showCreateForm && !searchTerm ? (
                 <button
                   onClick={() => setShowCreateForm(true)}
                   className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition"
