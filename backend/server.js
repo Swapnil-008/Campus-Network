@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.route.js';
 import announcementRoutes from './routes/announcement.route.js';
 import companyRoutes from './routes/company.route.js';
 import adminRoutes from './routes/admin.route.js';
+import notificationRoutes from './routes/notification.route.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -10,6 +10,8 @@ import SearchBar from '../components/common/SearchBar';
 import FilterBar from '../components/common/FilterBar';
 import TnP from './TnP';
 import AdminPanel from './AdminPanel';
+import Profile from './Profile';
+import NotificationBell from '../components/common/NotificationBell';
 
 const Dashboard = () => {
   const { user, logout } = useContext(AuthContext);
@@ -88,6 +90,7 @@ const Dashboard = () => {
               <p className="text-xs text-gray-500">Your campus, connected</p>
             </div>
             <div className="flex items-center gap-4">
+              <NotificationBell />
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{user?.name}</p>
                 <p className="text-xs text-gray-500">
@@ -143,6 +146,16 @@ const Dashboard = () => {
                 ⚙️ Admin Panel
             </button>
             )}
+            <button
+                onClick={() => setActiveTab('profile')}
+                className={`py-4 px-2 font-medium border-b-2 transition ${
+                    activeTab === 'profile'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+            >
+                👤 Profile
+            </button>
           </div>
         </div>
       </div>
@@ -182,7 +195,7 @@ const Dashboard = () => {
                 onFilterChange={handleFilterChange}
               />
             </div>
-            
+
             {/* Announcements List */}
             <div>
               <h2 className="text-2xl font-bold mb-4 text-gray-900">
@@ -227,7 +240,9 @@ const Dashboard = () => {
           <TnP />
         ) : activeTab === 'admin' ? (
             <AdminPanel />
-        ) : null}
+        ) : activeTab === 'profile' ? (
+            <Profile />
+        ) :null}
       </div>
     </div>
   );

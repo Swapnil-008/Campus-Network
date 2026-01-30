@@ -22,6 +22,9 @@ API.interceptors.request.use(
 export const registerUser = (userData) => API.post('/auth/register', userData);
 export const loginUser = (credentials) => API.post('/auth/login', credentials);
 export const getCurrentUser = () => API.get('/auth/me');
+export const updateProfile = (profileData) => API.put('/auth/profile', profileData);  
+export const changePassword = (passwordData) => API.put('/auth/change-password', passwordData); 
+export const getApplicationHistory = () => API.get('/auth/applications'); 
 
 // Announcement APIs
 export const createAnnouncement = (announcementData) => API.post('/announcements', announcementData);
@@ -47,5 +50,11 @@ export const approveUser = (id) => API.put(`/admin/users/${id}/approve`);
 export const deleteUser = (id) => API.delete(`/admin/users/${id}`);
 export const updateUserRole = (id, data) => API.put(`/admin/users/${id}/role`, data);
 export const getStatistics = () => API.get('/admin/statistics');
+
+// Notification APIs
+export const getNotifications = (params) => API.get('/notifications', { params });
+export const markNotificationAsRead = (id) => API.put(`/notifications/${id}/read`);
+export const markAllNotificationsAsRead = () => API.put('/notifications/read-all/all');
+export const deleteNotification = (id) => API.delete(`/notifications/${id}`);
 
 export default API;

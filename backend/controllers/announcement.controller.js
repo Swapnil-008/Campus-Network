@@ -1,5 +1,6 @@
 import Announcement from '../models/announcement.model.js';
 import User from '../models/user.model.js';
+import { createBulkNotifications } from './notification.controller.js';
 
 // @desc    Create a new announcement
 export const createAnnouncement = async (req, res) => {
@@ -25,6 +26,29 @@ export const createAnnouncement = async (req, res) => {
 
     // Populate creator info
     await announcement.populate('createdBy', 'name email role department');
+
+    let recipientQuery = {};
+
+    if (visibility.type === 'global') {
+      // Notify all users
+      recipientQuery = {};
+    } else if (visibility.type === 'department') {
+      // Notify users in specific departments
+      recipientQuery = { department: { $in: visibility.departments } };
+    }
+
+    const recipients = await User.find(recipientQuery).select('_id');
+    const recipientIds = recipients.map(user => user._id);
+
+    // Create notification for all recipients
+    await createBulkNotifications(
+      recipientIds,
+      'announcement',
+      `New ${priority} announcement`,
+      title,
+      '/announcements',
+      announcement._id
+    );
 
     res.status(201).json(announcement);
   } catch (err) {

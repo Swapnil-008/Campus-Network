@@ -1,5 +1,6 @@
 import Company from '../models/company.model.js';
 import User from '../models/user.model.js';
+import { createBulkNotifications } from './notification.controller.js';
 
 // @desc    Create a new company opportunity
 export const createCompany = async (req, res) => {
@@ -29,6 +30,25 @@ export const createCompany = async (req, res) => {
 
     await company.save();
     await company.populate('createdBy', 'name email role');
+
+    // CREATE NOTIFICATIONS FOR ELIGIBLE STUDENTS
+    const eligibleStudents = await User.find({
+      role: 'student',
+      department: { $in: eligibility.branches },
+      cgpa: { $gte: eligibility.minCGPA },
+      year: { $in: eligibility.years }
+    }).select('_id');
+
+    const studentIds = eligibleStudents.map(student => student._id);
+
+    await createBulkNotifications(
+      studentIds,
+      'company',
+      `New opportunity: ${companyName}`,
+      `${role} - Apply before ${new Date(deadline).toLocaleDateString()}`,
+      '/tnp',
+      company._id
+    );
 
     res.status(201).json(company);
   } catch (err) {
