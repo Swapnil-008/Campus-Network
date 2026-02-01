@@ -1,5 +1,6 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
+import FileUpload from './FileUpload';  
 
 const AnnouncementForm = ({ onSubmit, onCancel }) => {
   const { user } = useContext(AuthContext);
@@ -10,13 +11,14 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
     visibilityType: 'department',
     departments: user?.department ? [user.department] : [],
     priority: 'normal',
-    deadline: ''
+    deadline: '',
+    attachments: []  
   });
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { title, description, visibilityType, departments, priority, deadline } = formData;
+  const { title, description, visibilityType, departments, priority, deadline, attachments } = formData;
 
   const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -30,6 +32,15 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
         ? formData.departments.filter(d => d !== value)
         : [...formData.departments, value]
     });
+  };
+
+  const handleFilesChange = (files) => {
+    const attachments = files.map(file => ({
+      name: file.originalname,
+      url: `http://localhost:5000${file.url}`,
+      type: file.mimetype
+    }));
+    setFormData({ ...formData, attachments });
   };
 
   const handleSubmit = async (e) => {
@@ -51,7 +62,8 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
         departments: visibilityType === 'department' ? departments : []
       },
       priority,
-      deadline: deadline || null
+      deadline: deadline || null,
+      attachments 
     };
 
     try {
@@ -62,7 +74,8 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
         visibilityType: 'department',
         departments: user?.department ? [user.department] : [],
         priority: 'normal',
-        deadline: ''
+        deadline: '',
+        attachments: []  
       });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create announcement');
@@ -133,7 +146,7 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
               Select Departments *
             </label>
             <div className="space-y-2">
-              {['CS', 'IT', 'EnTC'].map((dept) => (
+              {['CS', 'IT', 'ENTC'].map((dept) => (
                 <label key={dept} className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -177,6 +190,13 @@ const AnnouncementForm = ({ onSubmit, onCancel }) => {
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+
+        {/* ADD FILE UPLOAD COMPONENT */}
+        <FileUpload
+          onFilesChange={handleFilesChange}
+          maxFiles={5}
+          existingFiles={attachments}
+        />
 
         <div className="flex gap-3 pt-4">
           <button

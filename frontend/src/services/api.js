@@ -57,4 +57,15 @@ export const markNotificationAsRead = (id) => API.put(`/notifications/${id}/read
 export const markAllNotificationsAsRead = () => API.put('/notifications/read-all/all');
 export const deleteNotification = (id) => API.delete(`/notifications/${id}`);
 
+// Upload APIs
+export const uploadFile = (formData) => API.post('/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+});
+
+export const uploadMultipleFiles = (formData) => API.post('/upload/multiple', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+});
+
+export const deleteFile = (filename) => API.delete(`/upload/${filename}`);
+
 export default API;

@@ -18,7 +18,7 @@ const announcementSchema = new mongoose.Schema({
     },
     departments: [{
       type: String,
-      enum: ['CS', 'IT', 'ENTC']
+      enum: ['CS', 'IT', 'ENTC'] 
     }]
   },
   priority: {
@@ -27,10 +27,19 @@ const announcementSchema = new mongoose.Schema({
     default: 'normal'
   },
   attachments: [{
-    name: String,
-    url: String,
-    type: String // pdf, image, doc, etc.
-  }],
+    name: {
+      type: String,
+      required: true
+    },
+    url: {
+      type: String,
+      required: true
+    },
+    type: {
+      type: String,
+      required: true
+    }
+  }],  
   deadline: {
     type: Date,
     default: null

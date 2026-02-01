@@ -22,7 +22,7 @@ const companySchema = new mongoose.Schema({
   eligibility: {
     branches: [{
       type: String,
-      enum: ['CS', 'IT', 'ENTC'],
+      enum: ['CS', 'IT', 'ENTC'],  // MAKE SURE EnTC IS HERE
       required: true
     }],
     minCGPA: {
@@ -70,5 +70,4 @@ const companySchema = new mongoose.Schema({
 companySchema.index({ isActive: 1, deadline: 1 });
 companySchema.index({ 'eligibility.branches': 1, 'eligibility.minCGPA': 1 });
 
-// Auto-deactivate after deadline (we'll handle this in controller)
 export default mongoose.model('Company', companySchema);

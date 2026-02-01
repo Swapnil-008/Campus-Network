@@ -215,7 +215,7 @@ const Profile = () => {
                   >
                     <option value="CS">Computer Science (CS)</option>
                     <option value="IT">Information Technology (IT)</option>
-                    <option value="EnTC">Electronics & Telecommunication (EnTC)</option>
+                    <option value="ENTC">Electronics & Telecommunication (ENTC)</option>
                   </select>
                 </div>
 

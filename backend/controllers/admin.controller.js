@@ -77,7 +77,7 @@ export const deleteUser = async (req, res) => {
     }
 }
 
-// @desc    Update user role
+// @desc Update user role
 export const updateUserRole = async (req, res) => {
     try {
         if (req.user.role !== 'college_admin') {
@@ -104,7 +104,7 @@ export const updateUserRole = async (req, res) => {
     }
 };
 
-// @desc    Get platform statistics
+// @desc Get platform statistics
 export const getStatistics = async (req, res) => {
     try {
         if (req.user.role !== 'college_admin' && req.user.role !== 'tnp_admin') {
