@@ -68,4 +68,25 @@ export const uploadMultipleFiles = (formData) => API.post('/upload/multiple', fo
 
 export const deleteFile = (filename) => API.delete(`/upload/${filename}`);
 
+// Group APIs
+export const createGroup = (groupData) => API.post('/groups', groupData);
+export const getUserGroups = () => API.get('/groups/my-groups');
+export const searchGroups = (params) => API.get('/groups/search', { params });
+export const getGroupById = (id) => API.get(`/groups/${id}`);
+export const joinGroup = (id) => API.post(`/groups/${id}/join`);
+export const leaveGroup = (id) => API.post(`/groups/${id}/leave`);
+export const approveJoinRequest = (id, userId) => API.post(`/groups/${id}/approve`, { userId });
+export const removeMember = (id, userId) => API.post(`/groups/${id}/remove-member`, { userId });
+export const makeAdmin = (id, userId) => API.post(`/groups/${id}/make-admin`, { userId });
+export const removeAdmin = (id, userId) => API.post(`/groups/${id}/remove-admin`, { userId });
+export const updateGroupSettings = (id, data) => API.put(`/groups/${id}/settings`, data);
+export const deleteGroup = (id) => API.delete(`/groups/${id}`);
+
+// Message APIs
+export const getGroupMessages = (groupId, params) => API.get(`/messages/group/${groupId}`, { params });
+export const getDirectMessages = (userId, params) => API.get(`/messages/direct/${userId}`, { params });
+export const getConversations = () => API.get('/messages/conversations');
+export const markMessagesAsRead = (messageIds) => API.post('/messages/mark-read', { messageIds });
+export const deleteMessage = (id) => API.delete(`/messages/${id}`);
+
 export default API;

@@ -6,12 +6,13 @@ import AnnouncementCard from '../components/common/AnnouncementCard';
 import AnnouncementForm from '../components/common/AnnouncementForm';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
-import SearchBar from '../components/common/SearchBar'; 
+import SearchBar from '../components/common/SearchBar';
 import FilterBar from '../components/common/FilterBar';
+import NotificationBell from '../components/common/NotificationBell';
 import TnP from './TnP';
 import AdminPanel from './AdminPanel';
 import Profile from './Profile';
-import NotificationBell from '../components/common/NotificationBell';
+import Chat from './Chat';  // ADD THIS IMPORT
 
 const Dashboard = () => {
   const { user, logout } = useContext(AuthContext);
@@ -26,7 +27,6 @@ const Dashboard = () => {
 
   const canCreateAnnouncement = ['teacher', 'tnp_admin', 'college_admin'].includes(user?.role);
 
-  // Priority filters
   const priorityFilters = [
     { value: 'all', label: 'All' },
     { value: 'urgent', label: '🚨 Urgent' },
@@ -134,27 +134,41 @@ const Dashboard = () => {
             >
               💼 Training & Placement
             </button>
-            {user?.role === 'college_admin' && (
+            
+            {/* ADD CHAT TAB */}
             <button
+              onClick={() => setActiveTab('chat')}
+              className={`py-4 px-2 font-medium border-b-2 transition ${
+                activeTab === 'chat'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              💬 Chat
+            </button>
+
+            {user?.role === 'college_admin' && (
+              <button
                 onClick={() => setActiveTab('admin')}
                 className={`py-4 px-2 font-medium border-b-2 transition ${
-                    activeTab === 'admin'
-                        ? 'border-blue-600 text-blue-600'
-                        : 'border-transparent text-gray-600 hover:text-gray-900'
-                }`}
-            >
-                ⚙️ Admin Panel
-            </button>
-            )}
-            <button
-                onClick={() => setActiveTab('profile')}
-                className={`py-4 px-2 font-medium border-b-2 transition ${
-                    activeTab === 'profile'
+                  activeTab === 'admin'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
+              >
+                ⚙️ Admin Panel
+              </button>
+            )}
+
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`py-4 px-2 font-medium border-b-2 transition ${
+                activeTab === 'profile'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
             >
-                👤 Profile
+              👤 Profile
             </button>
           </div>
         </div>
@@ -164,7 +178,6 @@ const Dashboard = () => {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {activeTab === 'announcements' ? (
           <>
-            {/* Create Announcement Button */}
             {canCreateAnnouncement && (
               <div className="mb-6">
                 {!showCreateForm ? (
@@ -183,7 +196,6 @@ const Dashboard = () => {
               </div>
             )}
 
-            {/* ADD SEARCH & FILTER SECTION */}
             <div className="mb-6 space-y-4">
               <SearchBar
                 onSearch={handleSearch}
@@ -196,10 +208,14 @@ const Dashboard = () => {
               />
             </div>
 
-            {/* Announcements List */}
             <div>
               <h2 className="text-2xl font-bold mb-4 text-gray-900">
                 {user?.role === 'student' ? 'Your Announcements' : 'All Announcements'}
+                {searchTerm && (
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    (searching for "{searchTerm}")
+                  </span>
+                )}
               </h2>
 
               {loading ? (
@@ -207,14 +223,16 @@ const Dashboard = () => {
               ) : announcements.length === 0 ? (
                 <EmptyState
                   icon="📢"
-                  title="No Announcements Yet"
+                  title={searchTerm ? "No Results Found" : "No Announcements Yet"}
                   description={
-                    canCreateAnnouncement
+                    searchTerm
+                      ? `No announcements match "${searchTerm}"`
+                      : canCreateAnnouncement
                       ? "Get started by creating your first announcement"
                       : "No announcements have been posted yet. Check back later!"
                   }
                   action={
-                    canCreateAnnouncement && !showCreateForm ? (
+                    canCreateAnnouncement && !showCreateForm && !searchTerm ? (
                       <button
                         onClick={() => setShowCreateForm(true)}
                         className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition"
@@ -238,11 +256,13 @@ const Dashboard = () => {
           </>
         ) : activeTab === 'tnp' ? (
           <TnP />
+        ) : activeTab === 'chat' ? (
+          <Chat />  // ADD THIS
         ) : activeTab === 'admin' ? (
-            <AdminPanel />
+          <AdminPanel />
         ) : activeTab === 'profile' ? (
-            <Profile />
-        ) :null}
+          <Profile />
+        ) : null}
       </div>
     </div>
   );
