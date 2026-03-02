@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import User from '../models/user.model.js';
 import Company from '../models/company.model.js';
 
@@ -36,7 +37,8 @@ export const register = async (req, res) => {
       department: (role === 'student' || role === 'teacher') ? department : undefined,
       year: role === 'student' ? year : undefined,
       cgpa: role === 'student' ? cgpa : undefined,
-      isApproved: role === 'student' ? true : false  // Auto-approve students
+      isApproved: role === 'student' ? true : false,
+      emailVerificationToken: crypto.randomBytes(32).toString('hex')
     });
 
     // Hash password
@@ -67,8 +69,11 @@ export const register = async (req, res) => {
         department: user.department,
         year: user.year,
         cgpa: user.cgpa,
-        isApproved: user.isApproved
-      }
+        isApproved: user.isApproved,
+        profilePicture: user.profilePicture,
+        isVerified: user.isVerified
+      },
+      emailVerificationToken: user.emailVerificationToken
     });
 
   } catch (err) {
@@ -122,7 +127,9 @@ export const login = async (req, res) => {
         department: user.department,
         year: user.year,
         cgpa: user.cgpa,
-        isApproved: user.isApproved
+        isApproved: user.isApproved,
+        profilePicture: user.profilePicture,
+        isVerified: user.isVerified
       }
     });
 
@@ -175,9 +182,57 @@ export const updateProfile = async (req, res) => {
         department: user.department,
         year: user.year,
         cgpa: user.cgpa,
-        isApproved: user.isApproved
+        isApproved: user.isApproved,
+        profilePicture: user.profilePicture,
+        isVerified: user.isVerified
       }
     });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Update profile picture
+export const updateProfilePicture = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    user.profilePicture = `/uploads/${req.file.filename}`;
+    await user.save();
+
+    res.json({
+      profilePicture: user.profilePicture,
+      message: 'Profile picture updated'
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Verify email
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const user = await User.findOne({ emailVerificationToken: token });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired verification token' });
+    }
+
+    user.isVerified = true;
+    user.emailVerificationToken = null;
+    await user.save();
+
+    res.json({ message: 'Email verified successfully' });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Server error' });

@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import upload from '../config/upload.js';
 import auth from '../middleware/auth.middleware.js';
+import processImage from '../middleware/imageProcessor.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -44,7 +45,7 @@ const handleMultiUpload = (req, res, next) => {
 // @route   POST /api/upload
 // @desc    Upload a file
 // @access  Private
-router.post('/', auth, handleUpload, (req, res) => {
+router.post('/', auth, handleUpload, processImage, (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });

@@ -26,7 +26,7 @@ const userSchema = new mongoose.Schema({
   department: {
     type: String,
     enum: ['CS', 'IT', 'ENTC'],  // MAKE SURE EnTC IS HERE
-    required: function() {
+    required: function () {
       return this.role === 'student' || this.role === 'teacher';
     }
   },
@@ -34,7 +34,7 @@ const userSchema = new mongoose.Schema({
     type: Number,
     min: 1,
     max: 4,
-    required: function() {
+    required: function () {
       return this.role === 'student';
     }
   },
@@ -42,9 +42,13 @@ const userSchema = new mongoose.Schema({
     type: Number,
     min: 0,
     max: 10,
-    required: function() {
+    required: function () {
       return this.role === 'student';
     }
+  },
+  profilePicture: {
+    type: String,
+    default: null
   },
   isVerified: {
     type: Boolean,
@@ -53,7 +57,22 @@ const userSchema = new mongoose.Schema({
   isApproved: {
     type: Boolean,
     default: false
+  },
+  emailVerificationToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
+
+userSchema.index({ email: 1 });
+userSchema.index({ role: 1, isApproved: 1 });
 
 export default mongoose.model('User', userSchema);

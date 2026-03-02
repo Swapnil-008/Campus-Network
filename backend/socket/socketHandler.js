@@ -6,6 +6,20 @@ import jwt from 'jsonwebtoken';
 
 const userSockets = new Map(); // userId -> Set<socketId>
 const typingUsers = new Map(); // room -> Set of userIds
+const messageRateLimits = new Map(); // userId -> { count, resetTime }
+
+// Rate limiter: max 10 messages per 5 seconds per user
+const checkRateLimit = (userId) => {
+  const now = Date.now();
+  const limit = messageRateLimits.get(userId);
+  if (!limit || now > limit.resetTime) {
+    messageRateLimits.set(userId, { count: 1, resetTime: now + 5000 });
+    return true;
+  }
+  if (limit.count >= 10) return false;
+  limit.count++;
+  return true;
+};
 
 export const setupSocket = (io) => {
   // Socket authentication middleware
@@ -78,7 +92,11 @@ export const setupSocket = (io) => {
     // Send group message
     socket.on('group:message', async (data) => {
       try {
-        const { groupId, content, messageType, file } = data;
+        if (!checkRateLimit(socket.userId)) {
+          return socket.emit('error', { message: 'Slow down! Too many messages.' });
+        }
+
+        const { groupId, content, messageType, file, replyTo } = data;
 
         const group = await Group.findById(groupId);
         if (!group || !group.members.some(m => m.toString() === socket.userId)) {
@@ -95,11 +113,15 @@ export const setupSocket = (io) => {
           sender: socket.userId,
           messageType: messageType || 'text',
           content: messageType === 'text' ? content : null,
-          file: file || null
+          file: file || null,
+          replyTo: replyTo || null
         });
 
         await message.save();
-        await message.populate('sender', 'name email department');
+        await message.populate('sender', 'name email department profilePicture');
+        if (message.replyTo) {
+          await message.populate('replyTo', 'content sender messageType');
+        }
 
         // Update group's updatedAt
         group.updatedAt = new Date();
@@ -143,7 +165,11 @@ export const setupSocket = (io) => {
     // Send direct message
     socket.on('direct:message', async (data) => {
       try {
-        const { recipientId, content, messageType, file } = data;
+        if (!checkRateLimit(socket.userId)) {
+          return socket.emit('error', { message: 'Slow down! Too many messages.' });
+        }
+
+        const { recipientId, content, messageType, file, replyTo } = data;
 
         const message = new Message({
           conversationType: 'direct',
@@ -151,11 +177,15 @@ export const setupSocket = (io) => {
           recipient: recipientId,
           messageType: messageType || 'text',
           content: messageType === 'text' ? content : null,
-          file: file || null
+          file: file || null,
+          replyTo: replyTo || null
         });
 
         await message.save();
-        await message.populate('sender recipient', 'name email department');
+        await message.populate('sender recipient', 'name email department profilePicture');
+        if (message.replyTo) {
+          await message.populate('replyTo', 'content sender messageType');
+        }
 
         // Update or create conversation
         const conversationId = getConversationId(socket.userId, recipientId);
@@ -279,6 +309,78 @@ export const setupSocket = (io) => {
 
       } catch (err) {
         console.error('Error marking messages as read:', err);
+      }
+    });
+
+    // ==================== REACTIONS ====================
+
+    socket.on('message:react', async (data) => {
+      try {
+        const { messageId, emoji } = data;
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        // Toggle reaction - remove if same emoji from same user, else add
+        const existingIdx = message.reactions.findIndex(
+          r => r.user.toString() === socket.userId && r.emoji === emoji
+        );
+
+        if (existingIdx >= 0) {
+          message.reactions.splice(existingIdx, 1);
+        } else {
+          message.reactions.push({ emoji, user: socket.userId });
+        }
+
+        await message.save();
+
+        // Emit to the appropriate room
+        const room = message.conversationType === 'group'
+          ? `group:${message.group}`
+          : `conversation:${getConversationId(message.sender.toString(), message.recipient.toString())}`;
+
+        io.to(room).emit('message:reaction-updated', {
+          messageId: message._id,
+          reactions: message.reactions
+        });
+      } catch (err) {
+        console.error('Error toggling reaction:', err);
+      }
+    });
+
+    // ==================== EDIT MESSAGE ====================
+
+    socket.on('message:edit', async (data) => {
+      try {
+        const { messageId, newContent } = data;
+        if (!newContent || !newContent.trim()) return;
+
+        const message = await Message.findById(messageId);
+        if (!message || message.sender.toString() !== socket.userId) {
+          return socket.emit('error', { message: 'Cannot edit this message' });
+        }
+        if (message.messageType !== 'text') {
+          return socket.emit('error', { message: 'Can only edit text messages' });
+        }
+
+        // Save original if first edit
+        if (!message.originalContent) {
+          message.originalContent = message.content;
+        }
+        message.content = newContent.trim();
+        message.editedAt = new Date();
+        await message.save();
+
+        const room = message.conversationType === 'group'
+          ? `group:${message.group}`
+          : `conversation:${getConversationId(message.sender.toString(), message.recipient.toString())}`;
+
+        io.to(room).emit('message:edited', {
+          messageId: message._id,
+          content: message.content,
+          editedAt: message.editedAt
+        });
+      } catch (err) {
+        console.error('Error editing message:', err);
       }
     });
 

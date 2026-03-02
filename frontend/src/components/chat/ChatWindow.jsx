@@ -1,18 +1,17 @@
 import { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { SocketContext } from '../../context/SocketContext';
-import { getGroupMessages, getDirectMessages, uploadFile, getGroupById } from '../../services/api';
+import { getGroupMessages, getDirectMessages, uploadFile, getGroupById, searchMessages } from '../../services/api';
 import MessageBubble from './MessageBubble';
 import GroupInfoPanel from './GroupInfoPanel';
 import toast from 'react-hot-toast';
 
-// Robust ID comparison — handles ObjectId, string, and populated objects
+// Robust ID comparison
 const getId = (obj) => {
   if (!obj) return null;
   if (typeof obj === 'string') return obj;
   return obj._id || obj.id || String(obj);
 };
-
 const idsMatch = (a, b) => {
   const idA = getId(a);
   const idB = getId(b);
@@ -31,7 +30,15 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [groupData, setGroupData] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const messageIdsRef = useRef(new Set());
 
@@ -39,7 +46,6 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
   const chatId = chatData._id || chatData.id;
   const userId = user._id || user.id;
 
-  // Fetch full group data for the info panel
   const fetchGroupData = useCallback(async () => {
     if (!isGroup) return;
     try {
@@ -50,18 +56,19 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
     }
   }, [chatId, isGroup]);
 
-  // Load messages and join room when chat changes
   useEffect(() => {
     setMessages([]);
     messageIdsRef.current.clear();
     setTypingUsers([]);
     setShowGroupInfo(false);
     setGroupData(null);
+    setReplyingTo(null);
+    setShowSearch(false);
+    setSearchQuery('');
+    setSearchResults([]);
     fetchMessages();
 
-    if (isGroup) {
-      fetchGroupData();
-    }
+    if (isGroup) fetchGroupData();
 
     if (socket) {
       if (isGroup) {
@@ -83,25 +90,19 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
     };
   }, [chatId, chatType, socket]);
 
-  // Socket event listeners — with proper filtering by chatId
+  // Socket event listeners
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
-      // Filter messages to only show ones for THIS chat
       if (isGroup) {
-        const msgGroupId = getId(message.group);
-        if (msgGroupId !== chatId) return;
+        if (getId(message.group) !== chatId) return;
       } else {
         const senderId = getId(message.sender);
         const recipientId = getId(message.recipient);
-        const isForThisChat =
-          (senderId === chatId && recipientId === userId) ||
-          (senderId === userId && recipientId === chatId);
-        if (!isForThisChat) return;
+        if (!((senderId === chatId && recipientId === userId) || (senderId === userId && recipientId === chatId))) return;
       }
 
-      // Deduplicate by message ID
       const msgId = getId(message);
       if (msgId && messageIdsRef.current.has(msgId)) return;
       if (msgId) messageIdsRef.current.add(msgId);
@@ -109,7 +110,6 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
       setMessages(prev => [...prev, message]);
       scrollToBottom();
 
-      // Mark message as read if from someone else
       if (!idsMatch(message.sender, userId)) {
         markMessageRead(message);
       }
@@ -130,6 +130,20 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
       setTypingUsers(prev => prev.filter(u => u.userId !== typingUserId));
     };
 
+    // Real-time reaction updates
+    const handleReactionUpdated = ({ messageId, reactions }) => {
+      setMessages(prev => prev.map(m =>
+        getId(m) === messageId ? { ...m, reactions } : m
+      ));
+    };
+
+    // Real-time edit updates
+    const handleMessageEdited = ({ messageId, content, editedAt }) => {
+      setMessages(prev => prev.map(m =>
+        getId(m) === messageId ? { ...m, content, editedAt } : m
+      ));
+    };
+
     const handleError = (err) => {
       toast.error(err.message || 'Chat error');
     };
@@ -138,12 +152,16 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
     socket.on(messageEvent, handleNewMessage);
     socket.on('user:typing', handleTyping);
     socket.on('user:stop-typing', handleStopTyping);
+    socket.on('message:reaction-updated', handleReactionUpdated);
+    socket.on('message:edited', handleMessageEdited);
     socket.on('error', handleError);
 
     return () => {
       socket.off(messageEvent, handleNewMessage);
       socket.off('user:typing', handleTyping);
       socket.off('user:stop-typing', handleStopTyping);
+      socket.off('message:reaction-updated', handleReactionUpdated);
+      socket.off('message:edited', handleMessageEdited);
       socket.off('error', handleError);
     };
   }, [socket, isGroup, chatId, userId]);
@@ -161,14 +179,19 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
     setLoading(true);
     try {
       const res = isGroup
-        ? await getGroupMessages(chatId)
-        : await getDirectMessages(chatId);
-      const msgs = res.data;
+        ? await getGroupMessages(chatId, { limit: 50 })
+        : await getDirectMessages(chatId, { limit: 50 });
+
+      // Handle both old format (array) and new format ({ messages, hasMore })
+      const data = res.data;
+      const msgs = Array.isArray(data) ? data : data.messages;
+      setHasMore(data.hasMore || false);
+
       messageIdsRef.current = new Set(msgs.map(m => m._id));
       setMessages(msgs);
       scrollToBottom();
 
-      // Mark all unread messages as read
+      // Mark all unread as read
       const unreadMsgIds = msgs
         .filter(m => !idsMatch(m.sender, userId) && !m.readBy?.some(r => idsMatch(r.user, userId)))
         .map(m => m._id)
@@ -180,7 +203,6 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
           conversationType: isGroup ? 'group' : 'direct',
           conversationId: chatId
         });
-        // Notify parent to refresh conversation list
         if (onConversationRead) onConversationRead();
       }
     } catch (err) {
@@ -190,30 +212,90 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
     }
   };
 
+  const loadMoreMessages = async () => {
+    if (loadingMore || !hasMore || messages.length === 0) return;
+    setLoadingMore(true);
+
+    const container = messagesContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight || 0;
+
+    try {
+      const oldestMessage = messages[0];
+      const before = oldestMessage.createdAt;
+
+      const res = isGroup
+        ? await getGroupMessages(chatId, { limit: 50, before })
+        : await getDirectMessages(chatId, { limit: 50, before });
+
+      const data = res.data;
+      const olderMsgs = Array.isArray(data) ? data : data.messages;
+      setHasMore(data.hasMore || false);
+
+      olderMsgs.forEach(m => messageIdsRef.current.add(m._id));
+      setMessages(prev => [...olderMsgs, ...prev]);
+
+      // Preserve scroll position
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - prevScrollHeight;
+        }
+      });
+    } catch (err) {
+      toast.error('Failed to load more messages');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Chat search
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await searchMessages({
+        q: searchQuery,
+        chatType: isGroup ? 'group' : 'direct',
+        chatId
+      });
+      setSearchResults(res.data);
+    } catch (err) {
+      toast.error('Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const timeout = setTimeout(handleSearch, 500);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
+
   const scrollToBottom = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
   };
 
-  const handleTyping = () => {
+  const handleTypingEvent = () => {
     if (!socket) return;
-
     if (isGroup) {
       socket.emit('group:typing', chatId);
     } else {
       socket.emit('direct:typing', chatId);
     }
-
     clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      handleStopTyping();
-    }, 3000);
+    typingTimeoutRef.current = setTimeout(handleStopTypingEvent, 3000);
   };
 
-  const handleStopTyping = () => {
+  const handleStopTypingEvent = () => {
     if (!socket) return;
-
     if (isGroup) {
       socket.emit('group:stop-typing', chatId);
     } else {
@@ -223,28 +305,26 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-
     if (!newMessage.trim() || !socket) return;
 
     setSending(true);
-    handleStopTyping();
+    handleStopTypingEvent();
 
     try {
+      const payload = {
+        content: newMessage,
+        messageType: 'text',
+        replyTo: replyingTo?._id || null
+      };
+
       if (isGroup) {
-        socket.emit('group:message', {
-          groupId: chatId,
-          content: newMessage,
-          messageType: 'text'
-        });
+        socket.emit('group:message', { groupId: chatId, ...payload });
       } else {
-        socket.emit('direct:message', {
-          recipientId: chatId,
-          content: newMessage,
-          messageType: 'text'
-        });
+        socket.emit('direct:message', { recipientId: chatId, ...payload });
       }
 
       setNewMessage('');
+      setReplyingTo(null);
     } catch (err) {
       toast.error('Failed to send message');
     } finally {
@@ -273,26 +353,17 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
       };
 
       if (isGroup) {
-        socket.emit('group:message', {
-          groupId: chatId,
-          messageType: 'file',
-          file: fileData
-        });
+        socket.emit('group:message', { groupId: chatId, messageType: 'file', file: fileData });
       } else {
-        socket.emit('direct:message', {
-          recipientId: chatId,
-          messageType: 'file',
-          file: fileData
-        });
+        socket.emit('direct:message', { recipientId: chatId, messageType: 'file', file: fileData });
       }
 
       toast.success('File sent!');
     } catch (err) {
-      toast.error('Failed to upload file');
+      toast.error(err.response?.data?.message || 'Failed to upload file');
     } finally {
       setUploading(false);
     }
-
     e.target.value = '';
   };
 
@@ -302,12 +373,15 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
   };
 
   const isOnline = !isGroup && onlineUsers?.has(chatId);
+  const profilePic = chatData.profilePicture;
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  const baseUrl = apiUrl.replace('/api', '');
 
-  // Check if current user can post in this group
   const canPost = isGroup
-    ? !chatData.settings?.onlyAdminsCanPost ||
-    chatData.admins?.some(a => idsMatch(a, userId))
+    ? !chatData.settings?.onlyAdminsCanPost || chatData.admins?.some(a => idsMatch(a, userId))
     : true;
+
+  const displayMessages = showSearch && searchResults.length > 0 ? searchResults : messages;
 
   return (
     <div className="flex flex-col h-full">
@@ -330,9 +404,13 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
           ) : (
             <>
               <div className="relative">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
-                  {chatData.name?.charAt(0).toUpperCase()}
-                </div>
+                {profilePic ? (
+                  <img src={`${baseUrl}${profilePic}`} alt={chatData.name} className="w-10 h-10 rounded-full object-cover" />
+                ) : (
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                    {chatData.name?.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 {isOnline && (
                   <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
                 )}
@@ -348,23 +426,76 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
           )}
         </div>
 
-        {isGroup && (
+        <div className="flex items-center gap-2">
+          {/* Search toggle */}
           <button
-            onClick={() => setShowGroupInfo(!showGroupInfo)}
-            className={`p-2 rounded-full transition ${showGroupInfo ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
-            title="Group Info"
+            onClick={() => { setShowSearch(!showSearch); setSearchQuery(''); setSearchResults([]); }}
+            className={`p-2 rounded-full transition ${showSearch ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+            title="Search messages"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </button>
-        )}
+
+          {isGroup && (
+            <button
+              onClick={() => setShowGroupInfo(!showGroupInfo)}
+              className={`p-2 rounded-full transition ${showGroupInfo ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Group Info"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Search bar */}
+      {showSearch && (
+        <div className="bg-white border-b px-4 py-2 shrink-0">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search messages..."
+              className="w-full px-4 py-2 pl-10 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm"
+              autoFocus
+            />
+            <svg className="w-4 h-4 absolute left-3 top-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {searching && (
+              <div className="absolute right-3 top-2.5">
+                <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            )}
+          </div>
+          {searchResults.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1 px-2">{searchResults.length} results found</p>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Messages Area */}
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+            {/* Load more button */}
+            {hasMore && !showSearch && (
+              <div className="text-center">
+                <button
+                  onClick={loadMoreMessages}
+                  disabled={loadingMore}
+                  className="text-sm text-blue-600 hover:text-blue-700 bg-white px-4 py-2 rounded-full shadow-sm border hover:shadow transition disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : '⬆️ Load earlier messages'}
+                </button>
+              </div>
+            )}
+
             {loading ? (
               <div className="flex justify-center items-center h-full">
                 <div className="flex flex-col items-center gap-2">
@@ -372,19 +503,21 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
                   <span className="text-gray-500 text-sm">Loading messages...</span>
                 </div>
               </div>
-            ) : messages.length === 0 ? (
+            ) : displayMessages.length === 0 ? (
               <div className="flex flex-col justify-center items-center h-full text-gray-500">
-                <div className="text-6xl mb-4">💬</div>
-                <p className="font-medium">No messages yet</p>
-                <p className="text-sm mt-1">Start the conversation!</p>
+                <div className="text-6xl mb-4">{showSearch ? '🔍' : '💬'}</div>
+                <p className="font-medium">{showSearch ? 'No results found' : 'No messages yet'}</p>
+                <p className="text-sm mt-1">{showSearch ? 'Try a different search term' : 'Start the conversation!'}</p>
               </div>
             ) : (
-              messages.map((message) => (
+              displayMessages.map((message) => (
                 <MessageBubble
                   key={message._id || Math.random()}
                   message={message}
                   isOwn={idsMatch(message.sender, userId)}
                   isGroup={isGroup}
+                  onReply={(msg) => setReplyingTo(msg)}
+                  onEdit={() => { }}
                 />
               ))
             )}
@@ -396,14 +529,28 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
                   <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></span>
                 </div>
-                <span>
-                  {typingUsers.map(u => u.userName).join(', ')} typing...
-                </span>
+                <span>{typingUsers.map(u => u.userName).join(', ')} typing...</span>
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Reply preview */}
+          {replyingTo && (
+            <div className="bg-blue-50 border-t border-l-4 border-blue-500 px-4 py-2 flex items-center justify-between shrink-0">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-blue-600">
+                  Replying to {idsMatch(replyingTo.sender, userId) ? 'yourself' : replyingTo.sender?.name || 'User'}
+                </p>
+                <p className="text-sm text-gray-600 truncate">{replyingTo.content || '📎 File'}</p>
+              </div>
+              <button
+                onClick={() => setReplyingTo(null)}
+                className="text-gray-400 hover:text-gray-600 ml-2 p-1"
+              >✕</button>
+            </div>
+          )}
 
           {/* Input */}
           <div className="bg-white border-t p-3 shrink-0">
@@ -434,10 +581,10 @@ const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onCo
                   value={newMessage}
                   onChange={(e) => {
                     setNewMessage(e.target.value);
-                    handleTyping();
+                    handleTypingEvent();
                   }}
-                  onBlur={handleStopTyping}
-                  placeholder="Type a message..."
+                  onBlur={handleStopTypingEvent}
+                  placeholder={replyingTo ? 'Type a reply...' : 'Type a message...'}
                   className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                   disabled={sending || uploading}
                 />

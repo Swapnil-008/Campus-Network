@@ -28,7 +28,7 @@ const messageSchema = new mongoose.Schema({
   },
   content: {
     type: String,
-    required: function() {
+    required: function () {
       return this.messageType === 'text';
     }
   },
@@ -38,6 +38,24 @@ const messageSchema = new mongoose.Schema({
     type: String,
     size: Number
   },
+  replyTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null
+  },
+  editedAt: {
+    type: Date,
+    default: null
+  },
+  originalContent: {
+    type: String,
+    default: null
+  },
+  reactions: [{
+    emoji: { type: String, required: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
   readBy: [{
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -68,5 +86,6 @@ const messageSchema = new mongoose.Schema({
 messageSchema.index({ group: 1, createdAt: -1 });
 messageSchema.index({ sender: 1, recipient: 1, createdAt: -1 });
 messageSchema.index({ conversationType: 1, createdAt: -1 });
+messageSchema.index({ content: 'text' }); // text search index for chat search
 
 export default mongoose.models.Message || mongoose.model('Message', messageSchema);

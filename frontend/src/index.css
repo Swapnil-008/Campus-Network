@@ -1,3 +1,80 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Dark mode CSS variables */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+  --card-bg: #ffffff;
+  --hover-bg: #f9fafb;
+}
+
+.dark {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
+  --card-bg: #1e293b;
+  --hover-bg: #2d3748;
+}
+
+/* Apply dark mode to elements using Tailwind's dark: prefix */
+.dark body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.dark .bg-white {
+  background-color: var(--card-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark .bg-gray-50 {
+  background-color: var(--bg-secondary) !important;
+}
+
+.dark .bg-gray-100 {
+  background-color: var(--bg-tertiary) !important;
+}
+
+.dark .border-b, .dark .border-t, .dark .border-l, .dark .border-r, .dark .border {
+  border-color: var(--border-color) !important;
+}
+
+.dark .text-gray-600, .dark .text-gray-500, .dark .text-gray-400 {
+  color: var(--text-secondary) !important;
+}
+
+.dark .text-gray-900, .dark .text-gray-800, .dark .text-gray-700 {
+  color: var(--text-primary) !important;
+}
+
+.dark .hover\:bg-gray-50:hover {
+  background-color: var(--hover-bg) !important;
+}
+
+.dark .hover\:bg-gray-100:hover {
+  background-color: var(--bg-tertiary) !important;
+}
+
+.dark input, .dark textarea, .dark select {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dark .divide-y > :not(:first-child) {
+  border-color: var(--border-color) !important;
+}
+
+/* Smooth dark mode transition */
+body, .bg-white, .bg-gray-50, .bg-gray-100, .text-gray-600, .text-gray-700, .text-gray-800, .text-gray-900 {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}

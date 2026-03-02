@@ -22,6 +22,15 @@ import { setupSocket } from './socket/socketHandler.js';
 
 dotenv.config();
 
+// Validate critical environment variables
+const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'CLIENT_URL'];
+const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingVars.length > 0) {
+  console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
+  console.error('Please add them to your .env file');
+  process.exit(1);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

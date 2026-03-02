@@ -35,8 +35,10 @@ export const registerUser = (userData) => API.post('/auth/register', userData);
 export const loginUser = (credentials) => API.post('/auth/login', credentials);
 export const getCurrentUser = () => API.get('/auth/me');
 export const updateProfile = (profileData) => API.put('/auth/profile', profileData);
+export const updateProfilePicture = (formData) => API.put('/auth/profile-picture', formData);
 export const changePassword = (passwordData) => API.put('/auth/change-password', passwordData);
 export const getApplicationHistory = () => API.get('/auth/applications');
+export const verifyEmail = (token) => API.get(`/auth/verify-email/${token}`);
 
 // Announcement APIs
 export const createAnnouncement = (announcementData) => API.post('/announcements', announcementData);
@@ -71,9 +73,7 @@ export const deleteNotification = (id) => API.delete(`/notifications/${id}`);
 
 // Upload APIs — do NOT set Content-Type manually; Axios auto-sets it with boundary for FormData
 export const uploadFile = (formData) => API.post('/upload', formData);
-
 export const uploadMultipleFiles = (formData) => API.post('/upload/multiple', formData);
-
 export const deleteFile = (filename) => API.delete(`/upload/${filename}`);
 
 // Group APIs
@@ -94,6 +94,7 @@ export const deleteGroup = (id) => API.delete(`/groups/${id}`);
 export const getGroupMessages = (groupId, params) => API.get(`/messages/group/${groupId}`, { params });
 export const getDirectMessages = (userId, params) => API.get(`/messages/direct/${userId}`, { params });
 export const getConversations = () => API.get('/messages/conversations');
+export const searchMessages = (params) => API.get('/messages/search', { params });
 export const markMessagesAsRead = (messageIds) => API.post('/messages/mark-read', { messageIds });
 export const deleteMessage = (id) => API.delete(`/messages/${id}`);
 export const searchUsersForChat = (params) => API.get('/messages/users/search', { params });

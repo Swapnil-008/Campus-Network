@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { updateProfile, changePassword, getApplicationHistory } from '../services/api';
+import { updateProfile, changePassword, getApplicationHistory, updateProfilePicture } from '../services/api';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
 import toast from 'react-hot-toast';
@@ -11,6 +11,10 @@ const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [applications, setApplications] = useState([]);
   const [applicationsLoading, setApplicationsLoading] = useState(true);
+  const [uploadingPic, setUploadingPic] = useState(false);
+
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  const baseUrl = apiUrl.replace('/api', '');
 
   // Profile form
   const [profileData, setProfileData] = useState({
@@ -124,32 +128,29 @@ const Profile = () => {
         <div className="flex border-b">
           <button
             onClick={() => setActiveSection('profile')}
-            className={`px-6 py-3 font-medium transition ${
-              activeSection === 'profile'
+            className={`px-6 py-3 font-medium transition ${activeSection === 'profile'
                 ? 'border-b-2 border-blue-600 text-blue-600'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             👤 Profile Info
           </button>
           <button
             onClick={() => setActiveSection('password')}
-            className={`px-6 py-3 font-medium transition ${
-              activeSection === 'password'
+            className={`px-6 py-3 font-medium transition ${activeSection === 'password'
                 ? 'border-b-2 border-blue-600 text-blue-600'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             🔒 Change Password
           </button>
           {user?.role === 'student' && (
             <button
               onClick={() => setActiveSection('applications')}
-              className={`px-6 py-3 font-medium transition ${
-                activeSection === 'applications'
+              className={`px-6 py-3 font-medium transition ${activeSection === 'applications'
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               📝 Application History
             </button>
@@ -161,6 +162,57 @@ const Profile = () => {
       {activeSection === 'profile' && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-bold mb-6">Profile Information</h2>
+
+          {/* Profile Picture Upload */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className="relative group">
+              {user?.profilePicture ? (
+                <img
+                  src={`${baseUrl}${user.profilePicture}`}
+                  alt={user?.name}
+                  className="w-20 h-20 rounded-full object-cover border-2 border-blue-200"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-2xl font-bold">
+                  {user?.name?.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingPic}
+                  onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    setUploadingPic(true);
+                    try {
+                      const formData = new FormData();
+                      formData.append('profilePicture', file);
+                      await updateProfilePicture(formData);
+                      await loadUser();
+                      toast.success('Profile picture updated!');
+                    } catch (err) {
+                      toast.error(err.response?.data?.message || 'Failed to upload');
+                    } finally {
+                      setUploadingPic(false);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+                {uploadingPic ? (
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <span className="text-white text-sm">📷</span>
+                )}
+              </label>
+            </div>
+            <div>
+              <p className="font-medium text-gray-700">{user?.name}</p>
+              <p className="text-sm text-gray-500">Click avatar to change photo</p>
+            </div>
+          </div>
           <form onSubmit={handleProfileSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -366,11 +418,10 @@ const Profile = () => {
                       <p className="text-gray-600">{app.role}</p>
                     </div>
                     <span
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        app.status === 'open'
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${app.status === 'open'
                           ? 'bg-green-100 text-green-800'
                           : 'bg-gray-100 text-gray-700'
-                      }`}
+                        }`}
                     >
                       {app.status === 'open' ? '✅ Open' : '⏰ Closed'}
                     </span>
