@@ -1,19 +1,30 @@
 import Group from '../models/group.model.js';
 import User from '../models/user.model.js';
 
+// Helper to escape regex special characters to prevent ReDoS
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Create a new group
 export const createGroup = async (req, res) => {
   try {
     const { name, description, type, settings } = req.body;
 
+    // Validate required fields
+    if (!name || !type) {
+      return res.status(400).json({ message: 'Name and type are required' });
+    }
+
     const group = new Group({
       name,
-      description,
+      description: description || '',
       type,
       createdBy: req.user.id,
       admins: [req.user.id],
       members: [req.user.id],
-      settings: settings || {}
+      settings: {
+        onlyAdminsCanPost: settings?.onlyAdminsCanPost || false,
+        requireApproval: settings?.requireApproval || false
+      }
     });
 
     await group.save();
@@ -21,8 +32,8 @@ export const createGroup = async (req, res) => {
 
     res.status(201).json(group);
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error creating group:', err);
+    res.status(500).json({ message: err.message || 'Server error' });
   }
 };
 
@@ -40,7 +51,7 @@ export const getUserGroups = async (req, res) => {
 
     res.json(groups);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error fetching groups:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -56,13 +67,15 @@ export const getGroupById = async (req, res) => {
     }
 
     // Check if user is a member
-    if (!group.members.some(member => member._id.toString() === req.user.id)) {
+    const isMember = group.members.some(member => member._id.toString() === req.user.id);
+
+    if (!isMember) {
       return res.status(403).json({ message: 'Not a member of this group' });
     }
 
     res.json(group);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error fetching group:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -76,8 +89,8 @@ export const searchGroups = async (req, res) => {
 
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { description: { $regex: escapeRegex(search), $options: 'i' } }
       ];
     }
 
@@ -93,7 +106,7 @@ export const searchGroups = async (req, res) => {
 
     res.json(groups);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error searching groups:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -108,17 +121,22 @@ export const joinGroup = async (req, res) => {
     }
 
     // Check if already a member
-    if (group.members.includes(req.user.id)) {
+    const isMember = group.members.some(m => m.toString() === req.user.id);
+
+    if (isMember) {
       return res.status(400).json({ message: 'Already a member' });
     }
 
     // Check if requires approval
     if (group.settings.requireApproval) {
-      // Add to pending requests
-      if (!group.pendingRequests.includes(req.user.id)) {
+      // Check if already in pending
+      const isPending = group.pendingRequests.some(r => r.toString() === req.user.id);
+
+      if (!isPending) {
         group.pendingRequests.push(req.user.id);
         await group.save();
       }
+
       return res.json({ message: 'Join request sent. Waiting for admin approval.' });
     }
 
@@ -129,7 +147,7 @@ export const joinGroup = async (req, res) => {
 
     res.json({ message: 'Joined group successfully', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error joining group:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -144,9 +162,11 @@ export const leaveGroup = async (req, res) => {
     }
 
     // Can't leave if you're the only admin
-    if (group.admins.length === 1 && group.admins[0].toString() === req.user.id) {
-      return res.status(400).json({ 
-        message: 'You are the only admin. Please assign another admin before leaving.' 
+    const isOnlyAdmin = group.admins.length === 1 && group.admins[0].toString() === req.user.id;
+
+    if (isOnlyAdmin) {
+      return res.status(400).json({
+        message: 'You are the only admin. Please assign another admin before leaving.'
       });
     }
 
@@ -158,7 +178,7 @@ export const leaveGroup = async (req, res) => {
 
     res.json({ message: 'Left group successfully' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error leaving group:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -174,12 +194,16 @@ export const approveJoinRequest = async (req, res) => {
     }
 
     // Check if requester is admin
-    if (!group.admins.includes(req.user.id)) {
+    const isAdmin = group.admins.some(a => a.toString() === req.user.id);
+
+    if (!isAdmin) {
       return res.status(403).json({ message: 'Only admins can approve requests' });
     }
 
-    // Add user to members
-    if (!group.members.includes(userId)) {
+    // Add user to members if not already
+    const isMember = group.members.some(m => m.toString() === userId);
+
+    if (!isMember) {
       group.members.push(userId);
     }
 
@@ -193,7 +217,7 @@ export const approveJoinRequest = async (req, res) => {
 
     res.json({ message: 'User approved', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error approving request:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -209,12 +233,16 @@ export const removeMember = async (req, res) => {
     }
 
     // Check if requester is admin
-    if (!group.admins.includes(req.user.id)) {
+    const isAdmin = group.admins.some(a => a.toString() === req.user.id);
+
+    if (!isAdmin) {
       return res.status(403).json({ message: 'Only admins can remove members' });
     }
 
     // Can't remove other admins
-    if (group.admins.includes(userId)) {
+    const isTargetAdmin = group.admins.some(a => a.toString() === userId);
+
+    if (isTargetAdmin) {
       return res.status(400).json({ message: 'Cannot remove an admin. Remove admin rights first.' });
     }
 
@@ -223,7 +251,7 @@ export const removeMember = async (req, res) => {
 
     res.json({ message: 'Member removed', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error removing member:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -239,17 +267,23 @@ export const makeAdmin = async (req, res) => {
     }
 
     // Check if requester is admin
-    if (!group.admins.includes(req.user.id)) {
+    const isAdmin = group.admins.some(a => a.toString() === req.user.id);
+
+    if (!isAdmin) {
       return res.status(403).json({ message: 'Only admins can assign admin rights' });
     }
 
     // Check if user is a member
-    if (!group.members.includes(userId)) {
+    const isMember = group.members.some(m => m.toString() === userId);
+
+    if (!isMember) {
       return res.status(400).json({ message: 'User is not a member' });
     }
 
     // Add to admins if not already
-    if (!group.admins.includes(userId)) {
+    const isAlreadyAdmin = group.admins.some(a => a.toString() === userId);
+
+    if (!isAlreadyAdmin) {
       group.admins.push(userId);
       await group.save();
     }
@@ -258,7 +292,7 @@ export const makeAdmin = async (req, res) => {
 
     res.json({ message: 'Admin rights granted', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error making admin:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -288,7 +322,7 @@ export const removeAdmin = async (req, res) => {
 
     res.json({ message: 'Admin rights removed', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error removing admin:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -304,19 +338,26 @@ export const updateGroupSettings = async (req, res) => {
     }
 
     // Check if requester is admin
-    if (!group.admins.includes(req.user.id)) {
+    const isAdmin = group.admins.some(a => a.toString() === req.user.id);
+
+    if (!isAdmin) {
       return res.status(403).json({ message: 'Only admins can update settings' });
     }
 
     if (name) group.name = name;
     if (description !== undefined) group.description = description;
-    if (settings) group.settings = { ...group.settings, ...settings };
+    if (settings) {
+      group.settings = {
+        onlyAdminsCanPost: settings.onlyAdminsCanPost ?? group.settings.onlyAdminsCanPost,
+        requireApproval: settings.requireApproval ?? group.settings.requireApproval
+      };
+    }
 
     await group.save();
 
     res.json({ message: 'Group updated', group });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error updating group:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -339,7 +380,7 @@ export const deleteGroup = async (req, res) => {
 
     res.json({ message: 'Group deleted' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error deleting group:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };

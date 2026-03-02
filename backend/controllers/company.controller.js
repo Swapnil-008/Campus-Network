@@ -2,6 +2,9 @@ import Company from '../models/company.model.js';
 import User from '../models/user.model.js';
 import { createBulkNotifications } from './notification.controller.js';
 
+// Helper to escape regex special characters to prevent ReDoS
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Create a new company opportunity
 export const createCompany = async (req, res) => {
   try {
@@ -66,8 +69,11 @@ export const getCompanies = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Get query parameters for search and filter
-    const { search, status } = req.query;
+    // Get query parameters for search, filter, and pagination
+    const { search, status, page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
     let query = {};
 
@@ -94,9 +100,9 @@ export const getCompanies = async (req, res) => {
       query.$and = query.$and || [];
       query.$and.push({
         $or: [
-          { companyName: { $regex: search, $options: 'i' } },
-          { role: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
+          { companyName: { $regex: escapeRegex(search), $options: 'i' } },
+          { role: { $regex: escapeRegex(search), $options: 'i' } },
+          { description: { $regex: escapeRegex(search), $options: 'i' } }
         ]
       });
     }
@@ -114,12 +120,25 @@ export const getCompanies = async (req, res) => {
       }
     }
 
-    const companies = await Company.find(query)
-      .populate('createdBy', 'name email role')
-      .populate('applications.student', 'name email department year cgpa')
-      .sort({ deadline: 1 }); // Sort by deadline (closest first)
+    const [companies, total] = await Promise.all([
+      Company.find(query)
+        .populate('createdBy', 'name email role')
+        .populate('applications.student', 'name email department year cgpa')
+        .sort({ deadline: 1 })
+        .skip(skip)
+        .limit(limitNum),
+      Company.countDocuments(query)
+    ]);
 
-    res.json(companies);
+    res.json({
+      data: companies,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Server error' });
@@ -301,6 +320,11 @@ export const exportApplicants = async (req, res) => {
 // @desc    Close expired companies (can be called via cron job)
 export const closeExpiredCompanies = async (req, res) => {
   try {
+    // Only admins can close expired companies
+    if (req.user.role !== 'tnp_admin' && req.user.role !== 'college_admin') {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
     const result = await Company.updateMany(
       { deadline: { $lt: new Date() }, isActive: true },
       { isActive: false }

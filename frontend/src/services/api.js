@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
 });
 
 // Add token to requests automatically
@@ -18,13 +18,25 @@ API.interceptors.request.use(
     }
 );
 
+// Handle token expiry — redirect to login on 401
+API.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        }
+        return Promise.reject(error);
+    }
+);
+
 // Auth APIs
 export const registerUser = (userData) => API.post('/auth/register', userData);
 export const loginUser = (credentials) => API.post('/auth/login', credentials);
 export const getCurrentUser = () => API.get('/auth/me');
-export const updateProfile = (profileData) => API.put('/auth/profile', profileData);  
-export const changePassword = (passwordData) => API.put('/auth/change-password', passwordData); 
-export const getApplicationHistory = () => API.get('/auth/applications'); 
+export const updateProfile = (profileData) => API.put('/auth/profile', profileData);
+export const changePassword = (passwordData) => API.put('/auth/change-password', passwordData);
+export const getApplicationHistory = () => API.get('/auth/applications');
 
 // Announcement APIs
 export const createAnnouncement = (announcementData) => API.post('/announcements', announcementData);
@@ -57,14 +69,10 @@ export const markNotificationAsRead = (id) => API.put(`/notifications/${id}/read
 export const markAllNotificationsAsRead = () => API.put('/notifications/read-all/all');
 export const deleteNotification = (id) => API.delete(`/notifications/${id}`);
 
-// Upload APIs
-export const uploadFile = (formData) => API.post('/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-});
+// Upload APIs — do NOT set Content-Type manually; Axios auto-sets it with boundary for FormData
+export const uploadFile = (formData) => API.post('/upload', formData);
 
-export const uploadMultipleFiles = (formData) => API.post('/upload/multiple', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-});
+export const uploadMultipleFiles = (formData) => API.post('/upload/multiple', formData);
 
 export const deleteFile = (filename) => API.delete(`/upload/${filename}`);
 
@@ -88,5 +96,6 @@ export const getDirectMessages = (userId, params) => API.get(`/messages/direct/$
 export const getConversations = () => API.get('/messages/conversations');
 export const markMessagesAsRead = (messageIds) => API.post('/messages/mark-read', { messageIds });
 export const deleteMessage = (id) => API.delete(`/messages/${id}`);
+export const searchUsersForChat = (params) => API.get('/messages/users/search', { params });
 
 export default API;

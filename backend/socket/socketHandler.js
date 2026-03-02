@@ -4,26 +4,26 @@ import Conversation from '../models/conversation.model.js';
 import User from '../models/user.model.js';
 import jwt from 'jsonwebtoken';
 
-const userSockets = new Map(); // userId -> socketId mapping
-const typingUsers = new Map(); // groupId/conversationId -> Set of userIds
+const userSockets = new Map(); // userId -> Set<socketId>
+const typingUsers = new Map(); // room -> Set of userIds
 
 export const setupSocket = (io) => {
   // Socket authentication middleware
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token;
-      
+
       if (!token) {
         return next(new Error('Authentication error'));
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId = decoded.user.id;
-      
+
       // Attach user data
       const user = await User.findById(socket.userId).select('name email department role');
       socket.userData = user;
-      
+
       next();
     } catch (err) {
       next(new Error('Authentication error'));
@@ -32,26 +32,38 @@ export const setupSocket = (io) => {
 
   io.on('connection', (socket) => {
     console.log(`✅ User connected: ${socket.userId}`);
-    
-    // Store socket ID for this user
-    userSockets.set(socket.userId, socket.id);
-    
-    // Emit online status to all contacts
+
+    // Store socket ID for this user (supports multiple tabs)
+    if (!userSockets.has(socket.userId)) {
+      userSockets.set(socket.userId, new Set());
+    }
+    userSockets.get(socket.userId).add(socket.id);
+
+    // Emit online status to all other users
     socket.broadcast.emit('user:online', { userId: socket.userId });
 
-    // Join user's personal room
+    // Send the list of currently online users to the newly connected user
+    const onlineUserIds = Array.from(userSockets.keys());
+    socket.emit('users:online-list', onlineUserIds);
+
+    // Join user's personal room (for receiving DMs and notifications)
     socket.join(`user:${socket.userId}`);
+
+    // Auto-join all groups the user is a member of
+    Group.find({ members: socket.userId, isActive: true }).select('_id').then(groups => {
+      groups.forEach(g => {
+        socket.join(`group:${g._id}`);
+      });
+    });
 
     // ==================== GROUP EVENTS ====================
 
     // Join group room
     socket.on('group:join', async (groupId) => {
       try {
-        // Verify user is member
         const group = await Group.findById(groupId);
-        if (group && group.members.includes(socket.userId)) {
+        if (group && group.members.some(m => m.toString() === socket.userId)) {
           socket.join(`group:${groupId}`);
-          console.log(`User ${socket.userId} joined group ${groupId}`);
         }
       } catch (err) {
         console.error('Error joining group:', err);
@@ -61,7 +73,6 @@ export const setupSocket = (io) => {
     // Leave group room
     socket.on('group:leave', (groupId) => {
       socket.leave(`group:${groupId}`);
-      console.log(`User ${socket.userId} left group ${groupId}`);
     });
 
     // Send group message
@@ -69,18 +80,15 @@ export const setupSocket = (io) => {
       try {
         const { groupId, content, messageType, file } = data;
 
-        // Verify user is member and can post
         const group = await Group.findById(groupId);
-        if (!group || !group.members.includes(socket.userId)) {
+        if (!group || !group.members.some(m => m.toString() === socket.userId)) {
           return socket.emit('error', { message: 'Not authorized' });
         }
 
-        // Check if only admins can post
-        if (group.settings.onlyAdminsCanPost && !group.admins.includes(socket.userId)) {
+        if (group.settings.onlyAdminsCanPost && !group.admins.some(a => a.toString() === socket.userId)) {
           return socket.emit('error', { message: 'Only admins can send messages in this group' });
         }
 
-        // Create message
         const message = new Message({
           conversationType: 'group',
           group: groupId,
@@ -97,7 +105,7 @@ export const setupSocket = (io) => {
         group.updatedAt = new Date();
         await group.save();
 
-        // Emit to all group members
+        // Emit to all group members (including sender, so they see the message)
         io.to(`group:${groupId}`).emit('group:message', message);
 
         // Stop typing indicator for sender
@@ -120,14 +128,13 @@ export const setupSocket = (io) => {
 
     // ==================== DIRECT MESSAGE EVENTS ====================
 
-    // Join direct conversation
+    // Join direct conversation room
     socket.on('direct:join', (otherUserId) => {
       const conversationId = getConversationId(socket.userId, otherUserId);
       socket.join(`conversation:${conversationId}`);
-      console.log(`User ${socket.userId} joined conversation with ${otherUserId}`);
     });
 
-    // Leave direct conversation
+    // Leave direct conversation room
     socket.on('direct:leave', (otherUserId) => {
       const conversationId = getConversationId(socket.userId, otherUserId);
       socket.leave(`conversation:${conversationId}`);
@@ -138,7 +145,6 @@ export const setupSocket = (io) => {
       try {
         const { recipientId, content, messageType, file } = data;
 
-        // Create message
         const message = new Message({
           conversationType: 'direct',
           sender: socket.userId,
@@ -172,27 +178,34 @@ export const setupSocket = (io) => {
 
         await conversation.save();
 
-        // Emit to both users
+        // Emit to the conversation room (both users if they have it open)
         io.to(`conversation:${conversationId}`).emit('direct:message', message);
-        
-        // Notify recipient if online
-        const recipientSocketId = userSockets.get(recipientId);
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit('notification:new-message', {
-            from: socket.userData,
-            message: message,
-            conversationId
-          });
-        }
 
-        // Mark as delivered if recipient is online
-        if (recipientSocketId) {
+        // ALSO emit to the recipient's personal room so they get the message
+        // even if they don't have this conversation open
+        io.to(`user:${recipientId}`).emit('direct:new-conversation', {
+          message,
+          conversationId
+        });
+
+        // Notify recipient with notification event
+        const recipientSockets = userSockets.get(recipientId);
+        if (recipientSockets && recipientSockets.size > 0) {
+          for (const socketId of recipientSockets) {
+            io.to(socketId).emit('notification:new-message', {
+              from: socket.userData,
+              message: message,
+              conversationId
+            });
+          }
+
+          // Mark as delivered
           message.deliveredTo.push({
             user: recipientId,
             deliveredAt: new Date()
           });
           await message.save();
-          
+
           socket.emit('message:delivered', { messageId: message._id });
         }
 
@@ -238,16 +251,18 @@ export const setupSocket = (io) => {
           }
         );
 
-        // Notify sender about read status
+        // Notify senders about read status
         const messages = await Message.find({ _id: { $in: messageIds } });
         messages.forEach(msg => {
-          const senderSocketId = userSockets.get(msg.sender.toString());
-          if (senderSocketId) {
-            io.to(senderSocketId).emit('message:read', {
-              messageId: msg._id,
-              readBy: socket.userId,
-              readAt: new Date()
-            });
+          const senderSockets = userSockets.get(msg.sender.toString());
+          if (senderSockets) {
+            for (const socketId of senderSockets) {
+              io.to(socketId).emit('message:read', {
+                messageId: msg._id,
+                readBy: socket.userId,
+                readAt: new Date()
+              });
+            }
           }
         });
 
@@ -259,6 +274,9 @@ export const setupSocket = (io) => {
           );
         }
 
+        // Notify the sender so they can refresh their conversation list
+        socket.emit('messages:read-confirmed', { messageIds });
+
       } catch (err) {
         console.error('Error marking messages as read:', err);
       }
@@ -268,13 +286,16 @@ export const setupSocket = (io) => {
 
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${socket.userId}`);
-      
-      // Remove from user sockets map
-      userSockets.delete(socket.userId);
-      
-      // Emit offline status
-      socket.broadcast.emit('user:offline', { userId: socket.userId });
-      
+
+      const sockets = userSockets.get(socket.userId);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) {
+          userSockets.delete(socket.userId);
+          socket.broadcast.emit('user:offline', { userId: socket.userId });
+        }
+      }
+
       // Clean up typing indicators
       for (const [room, users] of typingUsers.entries()) {
         users.delete(socket.userId);
@@ -296,17 +317,15 @@ const handleTyping = (socket, room, io) => {
   if (!typingUsers.has(room)) {
     typingUsers.set(room, new Set());
   }
-  
+
   const users = typingUsers.get(room);
   users.add(socket.userId);
-  
-  // Emit to room except sender
+
   socket.to(room).emit('user:typing', {
     userId: socket.userId,
     userName: socket.userData.name
   });
-  
-  // Auto-stop after 3 seconds
+
   setTimeout(() => {
     if (users.has(socket.userId)) {
       handleStopTyping(socket, room, io);
@@ -319,7 +338,7 @@ const handleStopTyping = (socket, room, io) => {
   const users = typingUsers.get(room);
   if (users) {
     users.delete(socket.userId);
-    
+
     socket.to(room).emit('user:stop-typing', {
       userId: socket.userId
     });

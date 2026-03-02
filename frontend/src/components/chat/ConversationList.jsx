@@ -6,8 +6,10 @@ const ConversationList = ({ conversations, selectedConversation, onSelectConvers
   const { user } = useContext(AuthContext);
   const { onlineUsers } = useContext(SocketContext);
 
+  const userId = user._id || user.id;
+
   const getOtherParticipant = (conversation) => {
-    return conversation.participants.find(p => p._id !== user.id);
+    return conversation.participants.find(p => p._id !== userId);
   };
 
   const formatTime = (date) => {
@@ -26,7 +28,7 @@ const ConversationList = ({ conversations, selectedConversation, onSelectConvers
   };
 
   const getUnreadCount = (conversation) => {
-    return conversation.unreadCount?.[user.id] || 0;
+    return conversation.unreadCount?.[userId] || 0;
   };
 
   return (
@@ -46,9 +48,8 @@ const ConversationList = ({ conversations, selectedConversation, onSelectConvers
             <button
               key={conversation._id}
               onClick={() => onSelectConversation(conversation)}
-              className={`w-full p-4 hover:bg-gray-50 transition text-left ${
-                selectedConversation?._id === conversation._id ? 'bg-blue-50' : ''
-              }`}
+              className={`w-full p-4 hover:bg-gray-50 transition text-left ${selectedConversation?._id === conversation._id ? 'bg-blue-50' : ''
+                }`}
             >
               <div className="flex items-start gap-3">
                 <div className="relative">
@@ -71,7 +72,7 @@ const ConversationList = ({ conversations, selectedConversation, onSelectConvers
                   <div className="flex items-center justify-between">
                     {conversation.lastMessage ? (
                       <p className="text-sm text-gray-600 truncate">
-                        {conversation.lastMessage.sender === user.id ? 'You: ' : ''}
+                        {conversation.lastMessage.sender === userId ? 'You: ' : ''}
                         {conversation.lastMessage.content || '📎 File'}
                       </p>
                     ) : (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { getAnnouncements, createAnnouncement } from '../services/api';
@@ -12,7 +12,8 @@ import NotificationBell from '../components/common/NotificationBell';
 import TnP from './TnP';
 import AdminPanel from './AdminPanel';
 import Profile from './Profile';
-import Chat from './Chat';  // ADD THIS IMPORT
+import Chat from './Chat';
+import useDebounce from '../hooks/useDebounce';
 
 const Dashboard = () => {
   const { user, logout } = useContext(AuthContext);
@@ -34,27 +35,29 @@ const Dashboard = () => {
     { value: 'normal', label: '📢 Normal' }
   ];
 
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+
   useEffect(() => {
     if (activeTab === 'announcements') {
       fetchAnnouncements();
     }
-  }, [activeTab, searchTerm, priorityFilter]);
+  }, [activeTab, debouncedSearchTerm, priorityFilter]);
 
-  const fetchAnnouncements = async () => {
+  const fetchAnnouncements = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (searchTerm) params.search = searchTerm;
       if (priorityFilter !== 'all') params.priority = priorityFilter;
-      
+
       const res = await getAnnouncements(params);
-      setAnnouncements(res.data);
+      setAnnouncements(res.data.data || res.data);
     } catch (err) {
       console.error('Error fetching announcements:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, priorityFilter]);
 
   const handleCreateAnnouncement = async (announcementData) => {
     try {
@@ -94,7 +97,7 @@ const Dashboard = () => {
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{user?.name}</p>
                 <p className="text-xs text-gray-500">
-                  {user?.role?.replace('_', ' ').toUpperCase()} 
+                  {user?.role?.replace('_', ' ').toUpperCase()}
                   {user?.department && ` • ${user.department}`}
                   {user?.year && ` • Year ${user.year}`}
                 </p>
@@ -116,33 +119,30 @@ const Dashboard = () => {
           <div className="flex gap-8">
             <button
               onClick={() => setActiveTab('announcements')}
-              className={`py-4 px-2 font-medium border-b-2 transition ${
-                activeTab === 'announcements'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
+              className={`py-4 px-2 font-medium border-b-2 transition ${activeTab === 'announcements'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
             >
               📢 Announcements
             </button>
             <button
               onClick={() => setActiveTab('tnp')}
-              className={`py-4 px-2 font-medium border-b-2 transition ${
-                activeTab === 'tnp'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
+              className={`py-4 px-2 font-medium border-b-2 transition ${activeTab === 'tnp'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
             >
               💼 Training & Placement
             </button>
-            
+
             {/* ADD CHAT TAB */}
             <button
               onClick={() => setActiveTab('chat')}
-              className={`py-4 px-2 font-medium border-b-2 transition ${
-                activeTab === 'chat'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
+              className={`py-4 px-2 font-medium border-b-2 transition ${activeTab === 'chat'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
             >
               💬 Chat
             </button>
@@ -150,11 +150,10 @@ const Dashboard = () => {
             {user?.role === 'college_admin' && (
               <button
                 onClick={() => setActiveTab('admin')}
-                className={`py-4 px-2 font-medium border-b-2 transition ${
-                  activeTab === 'admin'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
-                }`}
+                className={`py-4 px-2 font-medium border-b-2 transition ${activeTab === 'admin'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+                  }`}
               >
                 ⚙️ Admin Panel
               </button>
@@ -162,11 +161,10 @@ const Dashboard = () => {
 
             <button
               onClick={() => setActiveTab('profile')}
-              className={`py-4 px-2 font-medium border-b-2 transition ${
-                activeTab === 'profile'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
+              className={`py-4 px-2 font-medium border-b-2 transition ${activeTab === 'profile'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
             >
               👤 Profile
             </button>
@@ -228,8 +226,8 @@ const Dashboard = () => {
                     searchTerm
                       ? `No announcements match "${searchTerm}"`
                       : canCreateAnnouncement
-                      ? "Get started by creating your first announcement"
-                      : "No announcements have been posted yet. Check back later!"
+                        ? "Get started by creating your first announcement"
+                        : "No announcements have been posted yet. Check back later!"
                   }
                   action={
                     canCreateAnnouncement && !showCreateForm && !searchTerm ? (

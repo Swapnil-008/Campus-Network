@@ -8,6 +8,14 @@ export const register = async (req, res) => {
   try {
     const { name, email, password, role, department, year, cgpa } = req.body;
 
+    // Restrict self-registration to student and teacher roles only
+    const allowedSelfRegisterRoles = ['student', 'teacher'];
+    if (!allowedSelfRegisterRoles.includes(role)) {
+      return res.status(400).json({
+        message: 'Only student and teacher roles can self-register. Contact admin for other roles.'
+      });
+    }
+
     // Check if user exists
     let user = await User.findOne({ email });
     if (user) {
@@ -34,7 +42,7 @@ export const register = async (req, res) => {
     // Hash password
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
-    
+
     // Save user
     await user.save();
 
@@ -82,8 +90,8 @@ export const login = async (req, res) => {
 
     // Check approval status
     if (!user.isApproved) {
-      return res.status(403).json({ 
-        message: 'Your account is pending approval. Please contact the administrator.' 
+      return res.status(403).json({
+        message: 'Your account is pending approval. Please contact the administrator.'
       });
     }
 
@@ -148,7 +156,7 @@ export const updateProfile = async (req, res) => {
 
     // Update fields
     user.name = name || user.name;
-    
+
     // Only students can update these fields
     if (user.role === 'student') {
       user.department = department || user.department;

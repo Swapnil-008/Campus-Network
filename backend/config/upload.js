@@ -27,22 +27,33 @@ const storage = multer.diskStorage({
 // File filter - only allow certain file types
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
+    // Images
     'image/jpeg',
     'image/png',
     'image/jpg',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+    // Documents
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
     'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation' // .pptx
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+    // Text & CSV
+    'text/plain',
+    'text/csv',
+    // Archives
+    'application/zip',
+    'application/x-rar-compressed',
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only PDF, images, and Office documents are allowed.'), false);
+    cb(new Error(`File type "${file.mimetype}" is not allowed. Allowed: images, PDF, Office docs, text, CSV.`), false);
   }
 };
 

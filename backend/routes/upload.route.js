@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import upload from '../config/upload.js';
 import auth from '../middleware/auth.middleware.js';
 import path from 'path';
@@ -9,16 +10,46 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Wrapper to properly catch multer errors and pass them to the client
+const handleUpload = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File too large. Maximum size is 10MB.' });
+      }
+      return res.status(400).json({ message: err.message });
+    }
+    if (err) {
+      return res.status(400).json({ message: err.message || 'File upload failed' });
+    }
+    next();
+  });
+};
+
+const handleMultiUpload = (req, res, next) => {
+  upload.array('files', 5)(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File too large. Maximum size is 10MB.' });
+      }
+      return res.status(400).json({ message: err.message });
+    }
+    if (err) {
+      return res.status(400).json({ message: err.message || 'File upload failed' });
+    }
+    next();
+  });
+};
+
 // @route   POST /api/upload
 // @desc    Upload a file
 // @access  Private
-router.post('/', auth, upload.single('file'), (req, res) => {
+router.post('/', auth, handleUpload, (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Return file information
     res.json({
       filename: req.file.filename,
       originalname: req.file.originalname,
@@ -35,13 +66,12 @@ router.post('/', auth, upload.single('file'), (req, res) => {
 // @route   POST /api/upload/multiple
 // @desc    Upload multiple files
 // @access  Private
-router.post('/multiple', auth, upload.array('files', 5), (req, res) => {
+router.post('/multiple', auth, handleMultiUpload, (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
 
-    // Return array of file information
     const files = req.files.map(file => ({
       filename: file.filename,
       originalname: file.originalname,
@@ -62,14 +92,18 @@ router.post('/multiple', auth, upload.array('files', 5), (req, res) => {
 // @access  Private
 router.delete('/:filename', auth, (req, res) => {
   try {
-    const filePath = path.join(__dirname, '../uploads', req.params.filename);
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(__dirname, '../uploads', filename);
 
-    // Check if file exists
+    const uploadsDir = path.resolve(__dirname, '../uploads');
+    if (!path.resolve(filePath).startsWith(uploadsDir)) {
+      return res.status(400).json({ message: 'Invalid filename' });
+    }
+
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: 'File not found' });
     }
 
-    // Delete file
     fs.unlinkSync(filePath);
 
     res.json({ message: 'File deleted successfully' });

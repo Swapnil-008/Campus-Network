@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { getCompanies, createCompany, applyToCompany, exportApplicants } from '../services/api';
 import CompanyCard from '../components/common/CompanyCard';
@@ -8,13 +8,14 @@ import EmptyState from '../components/common/EmptyState';
 import SearchBar from '../components/common/SearchBar';  // ADD
 import FilterBar from '../components/common/FilterBar';  // ADD
 import toast from 'react-hot-toast';
+import useDebounce from '../hooks/useDebounce';
 
 const TnP = () => {
   const { user } = useContext(AuthContext);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  
+
   // ADD THESE STATES
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -28,25 +29,27 @@ const TnP = () => {
     { value: 'expired', label: '⏰ Expired' }
   ];
 
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+
   useEffect(() => {
     fetchCompanies();
-  }, [searchTerm, statusFilter]); // ADD DEPENDENCIES
+  }, [debouncedSearchTerm, statusFilter]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (searchTerm) params.search = searchTerm;
       if (statusFilter !== 'all' && isTnPAdmin) params.status = statusFilter;
-      
+
       const res = await getCompanies(params);
-      setCompanies(res.data);
+      setCompanies(res.data.data || res.data);
     } catch (err) {
       console.error('Error fetching companies:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, statusFilter, isTnPAdmin]);
 
   const handleCreateCompany = async (companyData) => {
     try {
@@ -105,7 +108,7 @@ const TnP = () => {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      
+
       toast.success(`Exported ${applicants.length} applicants successfully!`);
     } catch (err) {
       toast.error('Failed to export applicants');
@@ -123,9 +126,9 @@ const TnP = () => {
   const hasApplied = (companyId) => {
     const company = companies.find(c => c._id === companyId);
     if (!company || !company.applications) return false;
-    
+
     const userIdStr = user?.id?.toString();
-    
+
     return company.applications.some(app => {
       const appStudentId = app.student?._id?.toString() || app.student?.toString();
       return appStudentId === userIdStr;
@@ -198,10 +201,10 @@ const TnP = () => {
               searchTerm
                 ? `No companies match "${searchTerm}"`
                 : user?.role === 'student'
-                ? "No companies match your profile yet. Check back later!"
-                : isTnPAdmin
-                ? "Get started by posting your first company opportunity"
-                : "No placement opportunities have been posted yet"
+                  ? "No companies match your profile yet. Check back later!"
+                  : isTnPAdmin
+                    ? "Get started by posting your first company opportunity"
+                    : "No placement opportunities have been posted yet"
             }
             action={
               isTnPAdmin && !showCreateForm && !searchTerm ? (

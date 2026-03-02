@@ -2,11 +2,14 @@ import Announcement from '../models/announcement.model.js';
 import User from '../models/user.model.js';
 import { createBulkNotifications } from './notification.controller.js';
 
+// Helper to escape regex special characters to prevent ReDoS
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // @desc    Create a new announcement
 export const createAnnouncement = async (req, res) => {
   try {
     const { title, description, visibility, priority, attachments, deadline } = req.body;
-    
+
     // Only teachers, TnP admins, and college admins can create announcements
     if (!['teacher', 'tnp_admin', 'college_admin'].includes(req.user.role)) {
       return res.status(403).json({ message: 'Not authorized to create announcements' });
@@ -61,13 +64,16 @@ export const createAnnouncement = async (req, res) => {
 export const getAnnouncements = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Get query parameters for search and filter
-    const { search, priority, department } = req.query;
+    // Get query parameters for search, filter, and pagination
+    const { search, priority, department, page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
     let query = {};
 
@@ -76,7 +82,7 @@ export const getAnnouncements = async (req, res) => {
       query = {
         $or: [
           { 'visibility.type': 'global' },
-          { 
+          {
             'visibility.type': 'department',
             'visibility.departments': user.department
           }
@@ -92,8 +98,8 @@ export const getAnnouncements = async (req, res) => {
       query.$and = query.$and || [];
       query.$and.push({
         $or: [
-          { title: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
+          { title: { $regex: escapeRegex(search), $options: 'i' } },
+          { description: { $regex: escapeRegex(search), $options: 'i' } }
         ]
       });
     }
@@ -108,11 +114,24 @@ export const getAnnouncements = async (req, res) => {
       query['visibility.departments'] = department;
     }
 
-    const announcements = await Announcement.find(query)
-      .populate('createdBy', 'name email role department')
-      .sort({ priority: 1, createdAt: -1 }); // Sort by priority first, then date
+    const [announcements, total] = await Promise.all([
+      Announcement.find(query)
+        .populate('createdBy', 'name email role department')
+        .sort({ priority: 1, createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Announcement.countDocuments(query)
+    ]);
 
-    res.json(announcements);
+    res.json({
+      data: announcements,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Server error' });

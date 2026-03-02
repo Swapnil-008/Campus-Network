@@ -1,12 +1,25 @@
-import { useState, useEffect, useRef, useContext } from 'react';
+import { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import { SocketContext } from '../../context/SocketContext';
-import { getGroupMessages, getDirectMessages } from '../../services/api';
-import { uploadFile } from '../../services/api';
+import { getGroupMessages, getDirectMessages, uploadFile, getGroupById } from '../../services/api';
 import MessageBubble from './MessageBubble';
+import GroupInfoPanel from './GroupInfoPanel';
 import toast from 'react-hot-toast';
 
-const ChatWindow = ({ chatType, chatData, conversationData }) => {
+// Robust ID comparison — handles ObjectId, string, and populated objects
+const getId = (obj) => {
+  if (!obj) return null;
+  if (typeof obj === 'string') return obj;
+  return obj._id || obj.id || String(obj);
+};
+
+const idsMatch = (a, b) => {
+  const idA = getId(a);
+  const idB = getId(b);
+  return idA && idB && idA.toString() === idB.toString();
+};
+
+const ChatWindow = ({ chatType, chatData, conversationData, onGroupUpdated, onConversationRead }) => {
   const { user } = useContext(AuthContext);
   const { socket, onlineUsers } = useContext(SocketContext);
 
@@ -15,88 +28,161 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [groupData, setGroupData] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const messageIdsRef = useRef(new Set());
 
   const isGroup = chatType === 'group';
-  const chatId = isGroup ? chatData._id : chatData._id;
+  const chatId = chatData._id || chatData.id;
+  const userId = user._id || user.id;
 
+  // Fetch full group data for the info panel
+  const fetchGroupData = useCallback(async () => {
+    if (!isGroup) return;
+    try {
+      const res = await getGroupById(chatId);
+      setGroupData(res.data);
+    } catch (err) {
+      console.error('Error fetching group data:', err);
+    }
+  }, [chatId, isGroup]);
+
+  // Load messages and join room when chat changes
   useEffect(() => {
+    setMessages([]);
+    messageIdsRef.current.clear();
+    setTypingUsers([]);
+    setShowGroupInfo(false);
+    setGroupData(null);
     fetchMessages();
-    
+
+    if (isGroup) {
+      fetchGroupData();
+    }
+
     if (socket) {
       if (isGroup) {
-        socket.emit('group:join', chatData._id);
+        socket.emit('group:join', chatId);
       } else {
-        socket.emit('direct:join', chatData._id);
+        socket.emit('direct:join', chatId);
       }
     }
 
     return () => {
       if (socket) {
         if (isGroup) {
-          socket.emit('group:leave', chatData._id);
+          socket.emit('group:leave', chatId);
         } else {
-          socket.emit('direct:leave', chatData._id);
+          socket.emit('direct:leave', chatId);
         }
       }
+      clearTimeout(typingTimeoutRef.current);
     };
-  }, [chatId, chatType]);
+  }, [chatId, chatType, socket]);
 
+  // Socket event listeners — with proper filtering by chatId
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (message) => {
+      // Filter messages to only show ones for THIS chat
+      if (isGroup) {
+        const msgGroupId = getId(message.group);
+        if (msgGroupId !== chatId) return;
+      } else {
+        const senderId = getId(message.sender);
+        const recipientId = getId(message.recipient);
+        const isForThisChat =
+          (senderId === chatId && recipientId === userId) ||
+          (senderId === userId && recipientId === chatId);
+        if (!isForThisChat) return;
+      }
+
+      // Deduplicate by message ID
+      const msgId = getId(message);
+      if (msgId && messageIdsRef.current.has(msgId)) return;
+      if (msgId) messageIdsRef.current.add(msgId);
+
       setMessages(prev => [...prev, message]);
       scrollToBottom();
+
+      // Mark message as read if from someone else
+      if (!idsMatch(message.sender, userId)) {
+        markMessageRead(message);
+      }
     };
 
-    const handleTyping = ({ userId, userName }) => {
-      if (userId !== user.id) {
+    const handleTyping = ({ userId: typingUserId, userName }) => {
+      if (typingUserId !== userId) {
         setTypingUsers(prev => {
-          if (!prev.find(u => u.userId === userId)) {
-            return [...prev, { userId, userName }];
+          if (!prev.find(u => u.userId === typingUserId)) {
+            return [...prev, { userId: typingUserId, userName }];
           }
           return prev;
         });
       }
     };
 
-    const handleStopTyping = ({ userId }) => {
-      setTypingUsers(prev => prev.filter(u => u.userId !== userId));
+    const handleStopTyping = ({ userId: typingUserId }) => {
+      setTypingUsers(prev => prev.filter(u => u.userId !== typingUserId));
     };
 
-    if (isGroup) {
-      socket.on('group:message', handleNewMessage);
-      socket.on('user:typing', handleTyping);
-      socket.on('user:stop-typing', handleStopTyping);
-    } else {
-      socket.on('direct:message', handleNewMessage);
-      socket.on('user:typing', handleTyping);
-      socket.on('user:stop-typing', handleStopTyping);
-    }
+    const handleError = (err) => {
+      toast.error(err.message || 'Chat error');
+    };
+
+    const messageEvent = isGroup ? 'group:message' : 'direct:message';
+    socket.on(messageEvent, handleNewMessage);
+    socket.on('user:typing', handleTyping);
+    socket.on('user:stop-typing', handleStopTyping);
+    socket.on('error', handleError);
 
     return () => {
-      if (isGroup) {
-        socket.off('group:message', handleNewMessage);
-        socket.off('user:typing', handleTyping);
-        socket.off('user:stop-typing', handleStopTyping);
-      } else {
-        socket.off('direct:message', handleNewMessage);
-        socket.off('user:typing', handleTyping);
-        socket.off('user:stop-typing', handleStopTyping);
-      }
+      socket.off(messageEvent, handleNewMessage);
+      socket.off('user:typing', handleTyping);
+      socket.off('user:stop-typing', handleStopTyping);
+      socket.off('error', handleError);
     };
-  }, [socket, isGroup, user.id]);
+  }, [socket, isGroup, chatId, userId]);
+
+  const markMessageRead = (message) => {
+    if (!socket || !message._id) return;
+    socket.emit('messages:read', {
+      messageIds: [message._id],
+      conversationType: isGroup ? 'group' : 'direct',
+      conversationId: chatId
+    });
+  };
 
   const fetchMessages = async () => {
     setLoading(true);
     try {
       const res = isGroup
-        ? await getGroupMessages(chatData._id)
-        : await getDirectMessages(chatData._id);
-      setMessages(res.data);
+        ? await getGroupMessages(chatId)
+        : await getDirectMessages(chatId);
+      const msgs = res.data;
+      messageIdsRef.current = new Set(msgs.map(m => m._id));
+      setMessages(msgs);
       scrollToBottom();
+
+      // Mark all unread messages as read
+      const unreadMsgIds = msgs
+        .filter(m => !idsMatch(m.sender, userId) && !m.readBy?.some(r => idsMatch(r.user, userId)))
+        .map(m => m._id)
+        .filter(Boolean);
+
+      if (unreadMsgIds.length > 0 && socket) {
+        socket.emit('messages:read', {
+          messageIds: unreadMsgIds,
+          conversationType: isGroup ? 'group' : 'direct',
+          conversationId: chatId
+        });
+        // Notify parent to refresh conversation list
+        if (onConversationRead) onConversationRead();
+      }
     } catch (err) {
       toast.error('Failed to load messages');
     } finally {
@@ -114,12 +200,11 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
     if (!socket) return;
 
     if (isGroup) {
-      socket.emit('group:typing', chatData._id);
+      socket.emit('group:typing', chatId);
     } else {
-      socket.emit('direct:typing', chatData._id);
+      socket.emit('direct:typing', chatId);
     }
 
-    // Auto stop typing after 3 seconds
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       handleStopTyping();
@@ -130,15 +215,15 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
     if (!socket) return;
 
     if (isGroup) {
-      socket.emit('group:stop-typing', chatData._id);
+      socket.emit('group:stop-typing', chatId);
     } else {
-      socket.emit('direct:stop-typing', chatData._id);
+      socket.emit('direct:stop-typing', chatId);
     }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    
+
     if (!newMessage.trim() || !socket) return;
 
     setSending(true);
@@ -147,13 +232,13 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
     try {
       if (isGroup) {
         socket.emit('group:message', {
-          groupId: chatData._id,
+          groupId: chatId,
           content: newMessage,
           messageType: 'text'
         });
       } else {
         socket.emit('direct:message', {
-          recipientId: chatData._id,
+          recipientId: chatId,
           content: newMessage,
           messageType: 'text'
         });
@@ -171,50 +256,69 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
     const file = e.target.files[0];
     if (!file || !socket) return;
 
+    setUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
 
       const res = await uploadFile(formData);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const baseUrl = apiUrl.replace('/api', '');
+
       const fileData = {
         name: res.data.originalname,
-        url: `http://localhost:5000${res.data.url}`,
+        url: `${baseUrl}${res.data.url}`,
         type: res.data.mimetype,
         size: res.data.size
       };
 
       if (isGroup) {
         socket.emit('group:message', {
-          groupId: chatData._id,
+          groupId: chatId,
           messageType: 'file',
           file: fileData
         });
       } else {
         socket.emit('direct:message', {
-          recipientId: chatData._id,
+          recipientId: chatId,
           messageType: 'file',
           file: fileData
         });
       }
 
-      toast.success('File sent');
+      toast.success('File sent!');
     } catch (err) {
       toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
     }
 
     e.target.value = '';
   };
 
-  const isOnline = !isGroup && onlineUsers.has(chatData._id);
+  const handleGroupUpdated = () => {
+    fetchGroupData();
+    if (onGroupUpdated) onGroupUpdated();
+  };
+
+  const isOnline = !isGroup && onlineUsers?.has(chatId);
+
+  // Check if current user can post in this group
+  const canPost = isGroup
+    ? !chatData.settings?.onlyAdminsCanPost ||
+    chatData.admins?.some(a => idsMatch(a, userId))
+    : true;
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="bg-white border-b p-4 flex items-center justify-between">
+      <div className="bg-white border-b p-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           {isGroup ? (
             <>
-              <div className="text-3xl">👥</div>
+              <div className="w-10 h-10 bg-gradient-to-br from-green-400 to-teal-500 rounded-full flex items-center justify-center text-white text-xl">
+                👥
+              </div>
               <div>
                 <h3 className="font-bold text-lg">{chatData.name}</h3>
                 <p className="text-sm text-gray-500">
@@ -227,7 +331,7 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
             <>
               <div className="relative">
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
-                  {chatData.name.charAt(0).toUpperCase()}
+                  {chatData.name?.charAt(0).toUpperCase()}
                 </div>
                 {isOnline && (
                   <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
@@ -236,97 +340,135 @@ const ChatWindow = ({ chatType, chatData, conversationData }) => {
               <div>
                 <h3 className="font-bold text-lg">{chatData.name}</h3>
                 <p className="text-sm text-gray-500">
-                  {isOnline ? 'Online' : 'Offline'} • {chatData.department}
+                  {isOnline ? '🟢 Online' : '⚫ Offline'}
+                  {chatData.department && ` • ${chatData.department}`}
                 </p>
               </div>
             </>
           )}
         </div>
 
-        <button className="text-gray-600 hover:text-gray-900">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-        {loading ? (
-          <div className="flex justify-center items-center h-full">
-            <div className="text-gray-500">Loading messages...</div>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex flex-col justify-center items-center h-full text-gray-500">
-            <div className="text-6xl mb-4">💬</div>
-            <p>No messages yet</p>
-            <p className="text-sm">Start the conversation!</p>
-          </div>
-        ) : (
-          messages.map((message) => (
-            <MessageBubble
-              key={message._id}
-              message={message}
-              isOwn={message.sender._id === user.id}
-            />
-          ))
-        )}
-
-        {/* Typing Indicator */}
-        {typingUsers.length > 0 && (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <div className="flex gap-1">
-              <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-              <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
-              <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
-            </div>
-            <span>
-              {typingUsers[0].userName} {typingUsers.length > 1 && `and ${typingUsers.length - 1} other${typingUsers.length > 2 ? 's' : ''}`} typing...
-            </span>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
-      <div className="bg-white border-t p-4">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-          <label className="cursor-pointer text-gray-600 hover:text-gray-900">
-            <input
-              type="file"
-              onChange={handleFileUpload}
-              className="hidden"
-              accept="image/*,.pdf,.doc,.docx"
-            />
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-            </svg>
-          </label>
-
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => {
-              setNewMessage(e.target.value);
-              handleTyping();
-            }}
-            onBlur={handleStopTyping}
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={sending}
-          />
-
+        {isGroup && (
           <button
-            type="submit"
-            disabled={!newMessage.trim() || sending}
-            className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+            onClick={() => setShowGroupInfo(!showGroupInfo)}
+            className={`p-2 rounded-full transition ${showGroupInfo ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+            title="Group Info"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
-        </form>
+        )}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Messages Area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+            {loading ? (
+              <div className="flex justify-center items-center h-full">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-gray-500 text-sm">Loading messages...</span>
+                </div>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex flex-col justify-center items-center h-full text-gray-500">
+                <div className="text-6xl mb-4">💬</div>
+                <p className="font-medium">No messages yet</p>
+                <p className="text-sm mt-1">Start the conversation!</p>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <MessageBubble
+                  key={message._id || Math.random()}
+                  message={message}
+                  isOwn={idsMatch(message.sender, userId)}
+                  isGroup={isGroup}
+                />
+              ))
+            )}
+
+            {typingUsers.length > 0 && (
+              <div className="flex items-center gap-2 text-sm text-gray-500 py-1">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }}></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }}></span>
+                </div>
+                <span>
+                  {typingUsers.map(u => u.userName).join(', ')} typing...
+                </span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="bg-white border-t p-3 shrink-0">
+            {canPost ? (
+              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                <label className={`cursor-pointer p-2 rounded-full transition ${uploading ? 'text-blue-500 animate-pulse' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}>
+                  <input
+                    type="file"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                    disabled={uploading}
+                  />
+                  {uploading ? (
+                    <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  )}
+                </label>
+
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => {
+                    setNewMessage(e.target.value);
+                    handleTyping();
+                  }}
+                  onBlur={handleStopTyping}
+                  placeholder="Type a message..."
+                  className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                  disabled={sending || uploading}
+                />
+
+                <button
+                  type="submit"
+                  disabled={!newMessage.trim() || sending || uploading}
+                  className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                </button>
+              </form>
+            ) : (
+              <div className="text-center text-gray-500 py-2 text-sm bg-gray-50 rounded-lg">
+                🔒 Only admins can send messages in this group
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Group Info Panel */}
+        {isGroup && showGroupInfo && groupData && (
+          <GroupInfoPanel
+            group={groupData}
+            currentUser={user}
+            onClose={() => setShowGroupInfo(false)}
+            onGroupUpdated={handleGroupUpdated}
+          />
+        )}
       </div>
     </div>
   );

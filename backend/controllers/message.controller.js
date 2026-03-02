@@ -1,6 +1,10 @@
 import Message from '../models/message.model.js';
 import Group from '../models/group.model.js';
 import Conversation from '../models/conversation.model.js';
+import User from '../models/user.model.js';
+
+// Helper to escape regex
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // @desc    Get group messages
 export const getGroupMessages = async (req, res) => {
@@ -133,6 +137,36 @@ export const deleteMessage = async (req, res) => {
     await message.save();
 
     res.json({ message: 'Message deleted' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Search users for starting new conversations
+export const searchUsersForChat = async (req, res) => {
+  try {
+    const { search } = req.query;
+    let query = {
+      _id: { $ne: req.user.id },
+      isApproved: true
+    };
+
+    if (search) {
+      const escaped = escapeRegex(search);
+      query.$or = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { department: { $regex: escaped, $options: 'i' } }
+      ];
+    }
+
+    const users = await User.find(query)
+      .select('name email department role')
+      .sort({ name: 1 })
+      .limit(30);
+
+    res.json(users);
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Server error' });

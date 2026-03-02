@@ -3,64 +3,64 @@ import Company from '../models/company.model.js';
 import Announcement from '../models/announcement.model.js';
 
 export const getAllUsers = async (req, res) => {
-  try {
-    // Only college admins can access
-    if (req.user.role !== 'college_admin') {
-      return res.status(403).json({ message: 'Access denied' });
+    try {
+        // Only college admins can access
+        if (req.user.role !== 'college_admin') {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        const { status } = req.query; // ?status=pending or ?status=approved
+
+        let query = {};
+        if (status === 'pending') {
+            query = { isApproved: false, role: { $ne: 'student' } }; // Non-students pending approval
+        } else if (status === 'approved') {
+            query = { isApproved: true };
+        }
+
+        const users = await User.find(query)
+            .select('-password')
+            .sort({ createdAt: -1 });
+
+        res.json(users);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ message: 'Server error' });
     }
-
-    const { status } = req.query; // ?status=pending or ?status=approved
-
-    let query = {};
-    if (status === 'pending') {
-      query = { isApproved: false, role: { $ne: 'student' } }; // Non-students pending approval
-    } else if (status === 'approved') {
-      query = { isApproved: true };
-    }
-
-    const users = await User.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 });
-
-    res.json(users);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Server error' });
-  }
 };
 
 export const approveUser = async (req, res) => {
     try {
-        if(req.user.role !== 'college_admin') {
-            return res.status(403).json({message: 'Access denied'});
+        if (req.user.role !== 'college_admin') {
+            return res.status(403).json({ message: 'Access denied' });
         }
 
         const user = await User.findById(req.params.id);
 
-        if(!user) {
-            return res.status(404).json({message: 'User not found'});
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
         user.isApproved = true;
         await user.save();
 
-        res.json({message: 'User approved successfully'});
-    } catch(err) {
+        res.json({ message: 'User approved successfully' });
+    } catch (err) {
         console.error(err.message);
-        res.status(500).json({message: 'Server error'});
+        res.status(500).json({ message: 'Server error' });
     }
 };
 
 export const deleteUser = async (req, res) => {
     try {
-        if(req.user.role !== 'college_admin') {
-            return res.status(403).json({message: 'Access denied'});
+        if (req.user.role !== 'college_admin') {
+            return res.status(403).json({ message: 'Access denied' });
         }
 
         const user = await User.findById(req.params.id);
 
-        if(!user) {
-            return res.status(404).json({message: 'User not found'});
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
         // Don't allow deleting yourself
@@ -70,10 +70,10 @@ export const deleteUser = async (req, res) => {
 
         await user.deleteOne();
 
-        res.json({message: 'User deleted successfully'});
-    } catch(err) {
+        res.json({ message: 'User deleted successfully' });
+    } catch (err) {
         console.error(err.message);
-        res.status(500).json({message: "Server error"});
+        res.status(500).json({ message: "Server error" });
     }
 }
 
@@ -115,14 +115,17 @@ export const getStatistics = async (req, res) => {
         const totalStudents = await User.countDocuments({ role: 'student' });
         const totalTeachers = await User.countDocuments({ role: 'teacher' });
         const pendingApprovals = await User.countDocuments({ isApproved: false, role: { $ne: 'student' } });
-        
+
         const totalAnnouncements = await Announcement.countDocuments();
         const totalCompanies = await Company.countDocuments();
         const activeCompanies = await Company.countDocuments({ isActive: true, deadline: { $gte: new Date() } });
-        
-        // Total applications
-        const companies = await Company.find();
-        const totalApplications = companies.reduce((sum, company) => sum + company.applications.length, 0);
+
+        // Total applications — use aggregation instead of loading all companies
+        const applicationStats = await Company.aggregate([
+            { $project: { count: { $size: '$applications' } } },
+            { $group: { _id: null, totalApplications: { $sum: '$count' } } }
+        ]);
+        const totalApplications = applicationStats[0]?.totalApplications || 0;
 
         // Department-wise breakdown
         const departmentBreakdown = await User.aggregate([
