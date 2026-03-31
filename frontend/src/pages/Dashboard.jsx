@@ -84,16 +84,25 @@ const Dashboard = () => {
     navigate('/login');
   };
 
+  const handleBrandClick = () => {
+    setActiveTab('announcements');
+    navigate('/dashboard');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navbar */}
       <nav className="bg-white shadow-sm border-b sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-blue-600">College Platform</h1>
+            <button
+              onClick={handleBrandClick}
+              className="text-left rounded-md focus:outline-none"
+              aria-label="Go to dashboard home"
+            >
+              <h1 className="text-2xl font-bold text-blue-600 hover:text-blue-700 transition">College Platform</h1>
               <p className="text-xs text-gray-500">Your campus, connected</p>
-            </div>
+            </button>
             <div className="flex items-center gap-4">
               {/* Dark Mode Toggle */}
               <button

@@ -29,7 +29,8 @@ export const register = async (req, res) => {
     // }
 
     // Create user object
-    user = new User({
+    user = new User(
+    {
       name,
       email,
       password,
@@ -89,23 +90,23 @@ export const login = async (req, res) => {
 
     // Check if user exists
     const user = await User.findOne({ email });
-    if (!user) {
+    if (!user)
+    {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
-
     // Check approval status
-    if (!user.isApproved) {
+    if (!user.isApproved)
+    {
       return res.status(403).json({
         message: 'Your account is pending approval. Please contact the administrator.'
       });
     }
-
     // Verify password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    if (!isMatch)
+    {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
-
     // Create JWT payload
     const payload = {
       user: {

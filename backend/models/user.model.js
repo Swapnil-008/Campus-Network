@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema({
   },
   department: {
     type: String,
-    enum: ['CS', 'IT', 'ENTC'],  // MAKE SURE EnTC IS HERE
+    enum: ['CS', 'IT', 'ENTC'],
     required: function () {
       return this.role === 'student' || this.role === 'teacher';
     }
